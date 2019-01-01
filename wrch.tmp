@@ -1,0 +1,81 @@
+
+;	----- String print rountines:
+;
+; On entry, A0 points to text info block, which is
+;	Word 0: X position
+;	Word 1: Y position
+;	Word 2: Colour mask
+;	Bytes.. Ascii characters
+;	Last byte: Terminating zero
+
+p_hexprint	equ	$FD
+p_newcolour	equ	$FE
+p_moretext	equ	$FF
+
+print		moveq	#0,d0
+		move.b	(a0)+,d0		; get X position
+		move.l	process_screen,a1	; then init a1 to dfaddr
+		add	d0,a1			; and add that X position
+
+		moveq	#0,d0
+		move.b	(a0)+,d0	 	; Y position in pixels
+		mulu	#char_height*window_width,d0 	; Multiply with screen width
+		add.l	d0,a1		 	; final result in a1
+
+step2		move.b	(a0)+,d3		; colour mask (bits 0-3)
+
+printloop	moveq	#0,d0			; reset d0
+		move.b	(a0)+,d0		; get an ascii char
+		beq	endprint		; last, then jump
+		cmp.b	#p_moretext,d0		; Repeat step 1
+		beq	print
+		cmp.b	#p_newcolour,d0		; Repeat step 2			
+		beq	step2
+		cmp	#p_hexprint,d0		; Go print out d7.l
+		beq	print_long
+		bsr	vdu			; else VDU it
+		bra	printloop		; and goback
+
+endprint	rts
+
+;	----- Character print routines
+;
+; Enter with
+;	D0 = Character to display
+;	A1 = Address on first bit plane
+;	D3 = Colour mask
+
+char_height	equ	8			; BBC Font has 8 pixel lines
+
+vdu		and	#$ff,d0
+		lsl	#3,d0		 	; Multiply by 8
+		move.l	#charset-$100,a2 	; Add up to char set
+		add	d0,a2		 	; index into charset data
+		moveq	#0,d2			; depth of screen
+
+vdu1		moveq	#char_height-1,d1	; How many bytes to copy
+
+vdu2		move.b	(a2)+,d5
+		btst	#4,d3
+		bne	vdu7			; MOVE only (colour 16)
+
+		btst	d2,d3			; NAND or OR?
+		beq	vdu4
+vdu5		or.b	d5,(a1)			; OR the data in
+		bra	vdu6
+vdu4		not.b	d5			; 1's complement, then
+		and.b	d5,(a1)			; AND it in
+		bra	vdu6
+vdu7		move.b	d5,(a1)			; CHUCK it in
+
+vdu6		add.l	#window_width,a1 	; next
+		dbra	d1,vdu2
+
+		add.l	#window_size-(char_height*window_width),a1
+		subq	#char_height,a2		; new df and font pointer 
+		addq	#1,d2
+		cmp	#window_depth,d2
+		bne	vdu1
+
+		sub.l	#(window_size*window_depth)-1,a1
+		rts				; Back to first

@@ -1,0 +1,9 @@
+
+; The note is:	note <ID>, <volume>, <total>, <duration>, <rate>, <env>, <pb>
+; <ID> is the waveform no. (0-255)
+; <volume> is the initial volume (0-64)
+; <total> is the total duration, including pause
+; <duration> is the duration of the sound (0-65535)
+; <rate> is the sample conversion rate, the pitch
+; <env> is the amplitude envelope number (1-255, or zero if none)
+; <pb> is the frequency envelope number (1-255, or zero if none)

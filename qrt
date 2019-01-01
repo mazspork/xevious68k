@@ -1,0 +1,542 @@
+;
+; RUN-TIME MUSIC SEQUENCER
+;
+; 
+
+		include	"macro.i"
+		include "equates.i"
+
+		org	$20000
+
+sequencer	lea	custom,pad		; Keep this always in a6
+		move.l	#start,swi0		; Trap to start
+		trap	#0
+
+start		move	#clrall,intena(pad)	; Kill IRQs
+		move	#clrall,dmacon(pad)	; Kill DMAs
+
+		lea	IRQvectortable,a0	; Set up IRQ vectors
+		lea	level1autovect,a1
+		moveq	#7-1,d0
+initialise	move.l	(a0)+,(a1)+
+		dbra	d0,initialise
+
+		move.l	#copperlist,cop1lc(pad)
+		move	copjmp1(pad),d0
+		move	#%11111111,adkcon(pad)	; no modulation
+
+		move	#setbit+inten+vertb+audio3+audio2+audio1+audio0,intena(pad)
+		move	#setbit+dmaen+copen,dmacon(pad)
+
+		lea	$dff0aa,a0
+		moveq	#2,d0
+		moveq	#2,d1
+		moveq	#2,d3
+xyz		move	d0,(a0)
+		add	d3,d2
+		add	d2,d1
+		add	d1,d0
+		bra	xyz
+
+
+kill		
+		jmp	kill
+
+
+; Run a tune	d0=tune no.
+
+tune_start	lea	tune_table-4,a0
+		lsl	#2,d0			; *4 for a longword/entry
+		move.l	(a0,d0),a0		; a0 now points to tune's header
+
+		lea	voiceinfoblock,a1
+		moveq	#4-1,d0
+tune_start1	move.l	(a0)+,(a1)		; Initialise addresses of note data
+		add	#voiceinfolength,a1	; for all channels 3-2-1-0
+		dbra	d0,tune_start1
+		moveq	#4-1,d3
+		move	#$8008,d4
+tune_start2	move	d3,d0
+		bsr	start_channel		; 3-2-1-0
+		beq.s	no_sound_here
+		move	d4,dmacon(pad)		; start DMA for this channel
+no_sound_here	lsr.b	#1,d4
+		dbra	d3,tune_start2
+		rts
+
+
+; Find a free channel (with DMA disabled, voxstatus = playing_off)
+; returns EQ and d0=channel (0-3) if free
+;         NE (d0=FF) if no free channels
+
+find_channel	lea	voiceinfoblock+voxstatus-voiceinfolength,a0
+		moveq	#4-1,d0
+find_channels	add	#voiceinfolength,a0
+		tst	(a0)			; test for playing_off (== 0)
+		dbne	d0,find_channels
+		rts
+
+
+; Renewing the channels by calling update_chx will inevitably force that
+; channel to play the next note in the respective track.
+; D0.W = channel to update (0-3)
+; returns NE if ok, eq if no more notes
+; uses & destroys d0-d2/a0-a2
+
+
+start_channel	move	d0,d2			; keep copy here
+		lsl	#3,d0
+		lea	voiceinfoblock,a1	; find channel
+		add	d0,a1
+		lsl	#1,d0			; now * 16 (used later)
+		add	d0,a1
+		add	#audio,d0		; now -> chip address audio
+
+		move.l	(a1),a0			; address of note
+		moveq	#0,d1
+		move.b	(a0),d1			; (soundid) which waveform?
+		bmi.s	lastnote		; but there are no more notes
+		lsl	#4,d1			; 16 bytes each
+		lea	voicetable-voxtablelength,a2
+		add	d1,a2			; a2 now -> waveformtable
+
+		moveq	#0,d1
+		move	period(a0),audper(pad,d0)		; AUDxPER
+		move.b	volume(a0),d1
+		move	d1,audvol(pad,d0)			; AUDxVOL ***** +1 as .b???
+		move	duration(a0),durationcounter(a1)	; timespan
+
+		move.l	(a2),audptr(pad,d0)	; VOXA is zero
+		moveq	#playing_AtoC,d2
+		move	voxX(a2),d1		; length from A to C
+		bne.s	ch1_looped		; jump if loop-type waveform
+		move	voxL(a2),d1		; use length of whole sample
+		moveq	#playing_BtoD,d2	; pretend playing B->D
+
+ch1_looped	move	d1,audlen(pad,d0)	; store length in AUDxLEN
+		move.b	d2,voxstatus(a1)	; playing a->c
+
+		moveq	#0,d0
+		move.b	envelope(a0),d0		; any envelope?
+		beq.s	ch1_no_envelope
+
+		lsl	#2,d0			; 4 bytes per address entry
+		lea	envelopetable-4,a2
+		move.l	(a2,d0),envaddr(a1)	; address of envelope here
+
+		move.l	envaddr(a1),a2
+		move	(a2),envdelay(a1)	; set up envelope delay
+		move.b	envfraction(a2),envfrac(a1)
+		move.b	envinteger(a2),envint(a1)
+
+ch1_no_envelope	nop
+
+
+		
+		and	#%11011,CCR		; set zero flag
+		rts
+
+lastnote	moveq	#0,d0
+		bset	d2,d0				; set for DMA register
+		move	d0,dmacon(pad)			; now shut it up
+		lsl	#7,d0				; rotate for IRQ reg.
+		move	d0,intena(pad)
+		move.b	#playing_off,voxstatus(a1)	; silencio! (and set zero)
+		rts
+
+
+; LEVEL 4 INTERRUPT REQUEST SERVER ENTRY POINT
+; --------------------------------------------
+;
+; Audio channel 3/2/1/0 block finished
+;
+
+level4		movem.l	d0-d2/a0-a2,-(sp)
+
+		move	intreqr(pad),d1		; what bits
+		and	#$0780,d1		; only audio bits
+		move	d1,intreq(pad)		; clear it (bit 15 clear)
+		move	d1,d2			; keep copy here
+
+		moveq	#6,d0			; test bit
+find4src	addq	#1,d0
+		btst	d0,d1
+		beq.s	find4src
+		subq	#7,d0			; D0 now holds channel 0-3
+
+		lsl	#3,d0			; *8
+		lea	voiceinfoblock,a0
+		add	d0,a0
+		lsl	#1,d0			; *16 for index into hardware map
+		add	d0,a0			; * 24 (current size of voxinfoblock)
+		add	#audio,d0
+		move.l	(a0),a1			; noteaddr
+
+		moveq	#0,d1
+		move.b	(a1),d1			; waveform no.
+		lsl	#4,d1			; 16 bytes/waveform entry
+		lea	voicetable-voxtablelength,a2
+		add	d1,a2			; A0->voxinfo,A1->note,A2->waveform
+
+		cmp.b	#playing_AtoC,voxstatus(a0)	; one-shot part done?
+		beq.s	audioloop			; time for looping sequence
+		cmp.b	#playing_BtoC,voxstatus(a0)	; was it playing b to c?
+		beq.s	audioend
+		cmp.b	#playing_BtoD,voxstatus(a0)	; was it playing b to d?
+		beq.s	audiosilence
+
+		movem.l	(sp)+,d0-d2/a0-a2
+		rte
+
+audiosilence	move.l	#silence,audptr(pad,d0)		; zeros
+		move	#96,audlen(pad,d0)		; length
+		move.b	#playing_zero,voxstatus(a0)
+		move	d2,intena(pad)			; stop IRQ for that channel
+
+		movem.l	(sp)+,d0-d2/a0-a2
+		rte
+
+audioend	move.l	voxB(a2),audptr(pad,d0)		; from B
+		move	voxZ(a2),audlen(pad,d0) 	; to D
+		move.b	#playing_BtoD,voxstatus(a0)
+
+		movem.l	(sp)+,d0-d2/a0-a2
+		rte
+
+audioloop	move.l	voxB(a2),audptr(pad,d0)		; from B
+		move	voxY(a2),audlen(pad,d0)		; to C		
+		move.b	#looping_BtoC,voxstatus(a0)	; looping
+		move	d2,intena(pad)			; disable IRQ for this channel
+
+		movem.l	(sp)+,d0-d2/a0-a2
+		rte
+
+
+; LEVEL 3 INTERRUPT REQUEST SERVER ENTRY POINT
+; --------------------------------------------
+;
+; Start of vertical blank (raster beam retrace)
+; Blitter finished
+; Copper requesting 68000
+
+level3		movem.l	d0-d7/a0-a5,-(sp)
+
+		move	intreqr(pad),d1
+		and	#$0070,d1
+		move	d1,intreq(pad)
+
+		btst	#coperx,d1			; Copper interrupt
+		bne.s	copperirq
+		btst	#vertbx,d1
+		bne.s	vblankirq			; Vertical Blank IRQ
+
+;	----- Blitter finished
+blitterirq	movem.l	(sp)+,d0-d7/a0-a5	; Blitter IRQ
+		rte
+
+;	----- Copper finished
+copperirq
+		movem.l	(sp)+,d0-d7/a0-a5
+		rte
+
+;	----- Vertical blank
+vblankirq
+
+update_audio	moveq	#4-1,d3			; run through 4 channels
+		lea	3*voiceinfolength+voiceinfoblock,a3	
+
+audiorefresh	tst	durationcounter(a3)	; 50Hz ticker
+		beq.s	audio_effects		; jump if already zero (and don't store)
+		subq	#1,durationcounter(a3)	; decrement
+		bne.s	audio_effects		; store and jump if not yet zero
+
+		move	#$100,d0		; Enable IRQ for this channel
+		bset	d3,d0
+		rol	#7,d0
+		move	d0,intena(pad)
+
+		cmp.b	#looping_BtoC,voxstatus(a3)	; was it looping?
+		bne.s	audio_new			; no, it was silent
+
+		move.b	#playing_BtoC,voxstatus(a3)	; play it ONCE more
+		move.l	(a3),a0				; note address
+		move	pause(a0),durationcounter(a3)	; pause delay already here!
+		bne.s	audio_effects			; jump if pause <> 0
+
+audio_new	add.l	#notelength,(a3)		; assume new note now (from silence)
+		move	d3,d0				; d0 becomes channel
+		bsr	start_channel			; start that new one
+
+audio_effects	tst	envdelay(a3)			; Is there an envelope running?
+		beq.s	audio_effects2			; jump if none
+		move.b	envfrac(a3),d0
+		add.b	d0,curvolfrac(a3)		; Add fractional part
+		bvc.s	noenvfracflow			; jump if no overflow
+		scc	d0				; set d0 to 00 if negative fraction
+		negx.b	d0				; convert to 01 or FF
+		add.b	d0,curvolume(a3)		; inc or dec integer part
+noenvfracflow	move.b	envint(a3),d0
+		add.b	curvolume(a3),d0
+		move.b	d0,curvolume(a3)		; This is the new volume
+
+		move	d3,d4
+		lsl	#4,d4				; *16 for each hardware channel
+		add	#audio,d4
+		move	d0,audvol(pad,d4)		; new volume into Paula
+
+		subq	#1,envdelay(a3)			; delay envelope
+		bne.s	audio_effects2			; jump if still running
+
+		move.l	envaddr(a3),a4			; address of envelope
+		addq.l	#envelopelength,a4		; next one
+		move	(a4),envdelay(a3)		; delay - take action if "env off"
+		bne.s	good_envelope
+
+		tst.b	envfraction(a4)			; is it the last one?
+		beq.s	audio_effects2			; jump if so leaving envdelay = 0 too
+
+		moveq	#0,d0
+		move.b	envinteger(a4),d0		; new envelope
+		lsl	#2,d0				; offset 4 bytes per address
+		lea	envelopetable-4,a4
+		move.l	(a4,d0),a4			; index to get new address
+		move	(a4),envdelay(a3)		; delay - should be nonzero
+
+good_envelope	move	envfraction(a4),envfrac(a3)	; fractional and integer offsets
+
+audio_effects2	tst	pitchbenddelay(a3)		; Is there a pitchbender running?
+		beq.s	next_channel
+
+		nop
+
+next_channel	sub	#voiceinfolength,a3		; next data block
+		dbra	d3,audiorefresh
+
+		movem.l	(sp)+,d0-d7/a0-a5
+		rte
+
+
+level1		movem.l	d0,-(sp)
+		move	intreqr(pad),d0
+		and	#$0003,d0
+		move	d0,intreq(pad)
+
+		movem.l	(sp)+,d0
+		rte
+
+level2		movem.l	d0,-(sp)
+		move	intreqr(pad),d0
+		and	#$0004,d0
+		move	d0,intreq(pad)
+
+		movem.l	(sp)+,d0
+		rte
+
+level5		movem.l	d0,-(sp)
+		move	intreqr(pad),d0
+		and	#$1800,d0
+		move	d0,intreq(pad)
+
+		movem.l	(sp)+,d0
+		rte
+
+level6		movem.l	d0,-(sp)
+		move	intreqr(pad),d0
+		and	#$2000,d0
+		move	d0,intreq(pad)
+
+		movem.l	(sp)+,d0
+		rte
+
+level7		rte			; NMI is not used, but returned though
+
+IRQvectortable	dc.l	level1,level2,level3,level4,level5,level6,level7
+
+copperlist	copwait	forever
+
+; STRUCTURE VOXINFO (32 bytes)
+noteaddr	equ	$00	; address of current note for channel.
+durationcounter	equ	$04	; 20ms intervals left of note, counts.
+envaddr		equ	$06	; address of envelope structure (if any).
+envdelay	equ	$0A	; 20ms intervals left of envelope (if any).
+pitchbendaddr	equ	$0C	; address of pitchbender structure (if any).
+pitchbenddelay	equ	$10	; 20ms intervals left of pitchbender (if any).
+envfrac		equ	$12	; fractional part of envelope's transition value
+envint		equ	$13	; integer part of envelope's transistion value
+pitchbendfrac	equ	$14	; fractional part of pitchbender's transition
+pitchbendint	equ	$15	; integer part of pitchbender's transition
+voxstatus	equ	$16	; voice status (see below)
+curvolume	equ	$17	; current volume on channel (0-64)
+curpitch	equ	$18	; current period on channel (124-8000)
+curvolfrac	equ	$1A	; current volume fraction (-128 to 127)
+curpitchfrac	equ	$1B	; current period fraction (-128 to 127)
+voiceinfolength	equ	$20	; (4 pad bytes)
+
+; STATE VOXSTATUS
+playing_off	equ	0	; channel silent, DMA off
+playing_AtoC	equ	1	; channel playing one-shot from A to C
+looping_BtoC	equ	2	; channel playing loop from B to C
+playing_BtoC	equ	3	; channel playing one-shot from B to C
+playing_BtoD	equ	4	; channel playing one-shot from B to D
+playing_zero	equ	5	; channel silent, DMA on (playing zeros)
+
+voiceinfoblock	ds.b	4*voiceinfolength ; status of all channels
+
+tune_table	dc.l	tuneAdata	; addresses of tunes
+;		dc.l	tuneBdata...
+
+; STRUCTURE NOTE (10 bytes)
+soundid		equ	$00	; waveform no. or zero for last note
+volume		equ	$01	; initial volume 0-64
+duration	equ	$02	; duration of note in 20ms intervals
+pause		equ	$04	; subsequent pause also in 20ms intervals
+period		equ	$06	; initial sample rate
+envelope	equ	$08	; envelope no. or zero for same volume
+pitchbender	equ	$09	; pitchbend no. or zero for same pitch
+notelength	equ	$0A	; (10 bytes, no padding)
+
+tuneAdata	dc.l	Achannel0,Achannel1,Achannel2,Achannel3
+
+Achannel0
+		note	1,10,300,300,200,0
+		note	off
+Achannel1
+		note	1,0,300,300,240,0
+		note	1,64,50,50,250,0
+		note	2,64,50,50,260,0
+		note	off
+
+Achannel2
+		note	2,32,100,200,590,0
+		note	2,40,100,200,390,0
+		note	off
+
+Achannel3
+
+		note	off
+
+
+; Envelope data structures
+; ------------------------
+;
+;      Vol		
+;       ^    /-------		In this example, an envelope is run
+;       |   /			from "1" to "2" altering the amplitude
+;       |  /			of the sound every 20ms. The change in
+;       | /			amplitude is determined by a fractional
+;       |/			and integer part (both byte values) in
+;       A----+------->B		2's complement format.
+;       1    2
+;
+;
+; An envelope is a data structure determining how a channel output is
+; to be amplitude controlled through time. The data specifies how far
+; ahead (in 20ms intervals) the next reference point is, together with
+; information about the change in volume as a fractional and integer
+; part.
+;
+;	0: (word) Distance to ref point in 50Hz ticks
+;	2: (byte) 2's complement Fractional part of change
+;	3: (byte) 2's complement Integer part of change
+;
+; At the point where the distance has counted down to zero, the next
+; block of 4 bytes is fetched and interpreted. If the distance is nonzero,
+; it is treated as a new envelope distance and the two byte successors
+; as above. If the distance is zero, the following byte (offset 2) has a
+; special meaning:
+;
+;	0: Stop envelope and sustain this volume indefinetily or until
+;	   a new note has been struck.
+;	1: Go to the envelope which is held in the second byte (offset 3)
+;
+; Note that when a new note is struck, the envelope is killed and either
+; replaced with another or it becomes dormant, even if it is in the middle
+; of a transistion!
+
+
+; STRUCTURE ENVELOPE
+envdistance	equ	$00
+envfraction	equ	$02
+envinteger	equ	$03
+envelopelength	equ	$04
+
+; STATE ENVELOPEFRACTION
+envstop		equ	0
+envstart	equ	1
+
+envelopetable	dc.l	envelope1
+		dc.l	envelope2
+;		dc.l	envelope3...
+
+envelope1	envelop	500,20,2
+		envelop	0,1,2
+
+envelope2	envelop	32,0,-2
+		envelop	0,1,1
+
+
+;   Voice and Waveform data structures:
+;
+;   |-------|-------|-------|  <- waveform & ctrl points ...
+;   A       B       C       D  <- A=Start, B=Loop, C=Endloop, D=End
+;
+;  A = start of waveform
+;  B = loop point
+;  C = endloop point
+;  D = end of waveform
+;
+;  L = D-A, length of waveform
+;  X = C-A, distance from start to endloop
+;  Y = C-B, span of loop (if B=C, it's a one-shot waveform with no loop)
+;  Z = D-B, distance from loop point to end of waveform
+;
+;
+;  Information provided by user :-
+;
+;	DC.L	A	; address of beginning of waveform
+;	DC.W	B	; distance from A to B
+;	DC.W	C	; distance from A to C
+;	DC.W	D	; distance from A to D (length of waveform)
+;
+;  Data needed by the sequencer, processed by init code or macro:-
+;
+;	DC.L	A	; address of first sample      (A)	
+;	DC.W	L	; length of whole sample (words - for 1shotmode) (D)
+;	DC.W	X	; distance from A to C (words) (C)	
+;	DC.L	B	; address of first loop sample (A + B)	
+;	DC.W	Y	; distance from B to C (words) (C - B)
+;	DC.W	Z	; distance from B to D (words) (D - B)
+;
+
+; STRUCTURE VOXTABLE (16 bytes)
+voxA		equ	$00
+voxL		equ	$04
+voxX		equ	$06
+voxB		equ	$08
+voxY		equ	$0C
+voxZ		equ	$0E
+voxtablelength	equ	$10
+
+; Here are the Sound IDs
+
+voicetable	wavefrm	sinuswaveform,0,64,64
+		wavefrm	squarewaveform,0,32,32
+
+; 96 words/192 bytes of zeros for silence
+silence		dc.l	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+		dc.l	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+; ** example waveforms: a 64-byte sinewave and a 32-byte square **
+
+sinuswaveform	dc.b	12,14,37,48,60,71,81,90,98,106,112,118,122,125
+		dc.b	127,127,127,125,122,118,112,106,98,90,81,71,60,48
+		dc.b	37,24,12,-1,-13,-25,-38,-49,-61,-72,-82,-91,-99,-107
+		dc.b	-113,-119,-123,-126,-128,-128,-128,-126,-123,-119
+		dc.b	-113,-107,-99,-91,-82,-72,-61,-49,-38,-25,-13,-1
+
+squarewaveform	dc.b	-128,-128,-128,-128,-128,-128,-128,-128
+		dc.b	-128,-128,-128,-128,-128,-128,-128,-128
+		dc.b	 127,127,127,127,127,127,127,127
+		dc.b	 127,127,127,127,127,127,127,127
+
+

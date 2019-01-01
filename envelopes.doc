@@ -1,0 +1,39 @@
+
+; Envelope data structures
+; ------------------------
+;
+;      Vol		
+;       ^    /-------		In this example, an envelope is run
+;       |   /			from "1" to "2" altering the amplitude
+;       |  /			of the sound every 20ms. The change in
+;       | /			amplitude is determined by a fractional
+;       |/			and integer part (both byte values) in
+;       A----+------->B		2's complement format. Same applies for
+;       1    2			LFO-like frequency modulators.
+;
+;
+; An envelope is a data structure determining how a channel output is
+; to be amplitude controlled through time. The data specifies how far
+; ahead (in 20ms intervals) the next reference point is, together with
+; information about the change in volume as a fractional and integer
+; part.
+;
+;	0: (word) Distance to ref point in 50Hz ticks
+;	2: (word) Delta value (transition) represented in n/256 (2s cmpl)
+;
+; At the point where the distance has counted down to zero, the next
+; block of 4 bytes is fetched and interpreted. If the distance is nonzero,
+; it is treated as a new envelope distance and the two byte successors
+; as above. If the distance is zero, the following byte (offset 2) has a
+; special meaning:
+;
+;	0: Stop envelope and sustain this volume indefinetily or until
+;	   a new note has been struck.
+;	1: Go to the envelope which is held in the second byte (offset 3)
+;
+; Note that when a new note is struck, the envelope is killed and either
+; replaced with another or it becomes dormant, even if it is in the middle
+; of a transistion!
+;
+; All of the above rules apply to the pitchbending envelopes too, in fact,
+; the physical envelope structure is the same (uses same data)

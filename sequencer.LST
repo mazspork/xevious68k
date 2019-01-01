@@ -1,0 +1,1569 @@
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 1
+
+
+
+    1 00.00000000                                      opt     d+,o+,ow-
+    2 00.00000000                      
+    3 00.00000000                      ;       Run-time sound and music sequencer
+    4 00.00000000                      ;       (C) 1989 Mazoft Software (DK) - written by Maz Spork - all rights reserved
+    5 00.00000000                      ;
+    6 00.00000000                      ;       Uses Paula's A/D-converters to produce waveform patterns. Interrupts
+    7 00.00000000                      ;       processed are audio IRQs on 4 channels (level 4) and the raster
+    8 00.00000000                      ;       retrace (lavel 3) IRQ.
+    9 00.00000000                      ;
+   10 00.00000000                      ;
+   11 00.00000000                      ;       Accepts data tables from the editing sequencer "The WaveShaper"
+   12 00.00000000                      ;       or can be programmed directly.
+   13 00.00000000                      ;
+   14 00.00000000                      ;       This software contains raw code.
+   15 00.00000000                      ;
+   16 00.00000000                      ;
+    0 00.00000000                                      include "macro.i"
+    1 00.00000000                      ; ***************************************************************************
+    2 00.00000000                      ;
+    3 00.00000000                      ; Assembler include file: MACRO.I
+    4 00.00000000                      ;
+    5 00.00000000                      ; Various macro definitions:-
+    6 00.00000000                      ;
+    7 00.00000000                      ;       COPWAIT Copper "move" instruction
+    8 00.00000000                      ;       COPMOVE Copper "wait" instruction
+    9 00.00000000                      ;       COPSKIP Copper "skip" instruction
+   10 00.00000000                      ;       COPNOP  Copper pseudo no-op instruction
+   11 00.00000000                      ;       COPINSM 68000 macro to build a copper MOVE instruction
+   12 00.00000000                      ;       COPINSS 68000 macro to build a copper SKIP instruction
+   13 00.00000000                      ;       COPINSW 68000 macro to build a copper WAIT instruction
+   14 00.00000000                      ;       EXIT    68000 macro to exit from an interrupt server
+   15 00.00000000                      ;       ILLEGAL Motorola 'standard' (!) illegal instruction
+   16 00.00000000                      ;       PUSH    Pushes stuff on stack
+   17 00.00000000                      ;       POP     Pops stuff off stack
+   18 00.00000000                      ;
+   19 00.00000000                      ;       NOTE    Creates a note structure
+   20 00.00000000                      ;       WAVEFRM Builds a waveform control structure
+   21 00.00000000                      ;       ENVELOP Creates an envelope node
+   22 00.00000000                      ;
+   23 00.00000000                      ; (c) 1987-88-89 Mazoft Software (DK)
+   24 00.00000000                      ;
+   25 00.00000000                      ; Note that in most of the above macros, immediate values are assumed. There
+   26 00.00000000                      ; is NO NEED for an immediate identifier such as '#'.
+   27 00.00000000                      ;
+   28 00.00000000                      ; ***************************************************************************
+   29 00.00000000                      
+   30 00.00000000                      
+   31 00.00000000                      ; Copper "MOVE" instruction (move immediate word to register)
+   32 00.00000000                      ; Format: copmove data,register (offset)
+   33 00.00000000                      ;
+   34 00.00000000                      copmove         macro
+   35 00.00000000                                      dc.w    (((\2)/2)*2)
+   36 00.00000000                                      dc.w    (\1)
+   37 00.00000000                                      endm
+   38 00.00000000                      
+   39 00.00000000                      ; Copper "SKIP" instruction (skip next instruction if raster has reached
+   40 00.00000000                      ; specified X,Y position)
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 2
+MACRO.I
+
+
+   41 00.00000000                      ; Format: copskip VP,HP (assumes full-width masks and BFD bit set)
+   42 00.00000000                      ; and:    cskip VP,HP,Vmask,Hmask,Blitter_Finished_Disable
+   43 00.00000000                      ;
+   44 00.00000000                      copskip         macro
+   45 00.00000000                                      dc.w    (1+(\1)*$100+((\2)/2)*2)
+   46 00.00000000                                      dc.w    $FFFF
+   47 00.00000000                                      endm
+   48 00.00000000                      cskip           macro
+   49 00.00000000                                      dc.w    (1+(\1)*$100+((\2)/2)*2)
+   50 00.00000000                                      dc.w    (1+(\3)*$100+(\4)*2+(\5)*$8000)
+   51 00.00000000                                      endm
+   52 00.00000000                      
+   53 00.00000000                      ; Copper "WAIT" instruction (wait until raster position >= X,Y)
+   54 00.00000000                      ; Format: copwait VP,HP (assumes full-width masks and BFD bit set)
+   55 00.00000000                      ; and:    cwait VP,HP,Vmask,Hmask,Blitter_Finished_Disable
+   56 00.00000000                      ; alternatively, "copwait forever" waits forever (copwait 254,254)
+   57 00.00000000                      ;
+   58 00.00000000                      copwait         macro
+   59 00.00000000                              ifc     '\1','forever'
+   60 00.00000000                                      dc.w    $FEFF,$FFFE                         ; wait 254,254
+   61 00.00000000                                      mexit
+   62 00.00000000                              endc
+   63 00.00000000                                      dc.w    (1+(\1)*$100+((\2)/2)*2)            ; (\1<<8+\2!1)
+   64 00.00000000                                      dc.w    $FFFE
+   65 00.00000000                                      endm
+   66 00.00000000                      cwait           macro
+   67 00.00000000                                      dc.w    (1+(\1)*$100+((\2)/2)*2)            ; (\1<<8+\2!1)
+   68 00.00000000                                      dc.w    (0+(\3)*$100+(\4)*2+(\5)*$8000)     ; (\3<<9+\4<<1+\5<<15)
+   69 00.00000000                                      endm
+   70 00.00000000                      
+   71 00.00000000                      ; Copper NOP (no-op) is just a move instruction to a read-only register.
+   72 00.00000000                      ; Format: copnop
+   73 00.00000000                      ;
+   74 00.00000000                      copnop          macro
+   75 00.00000000                                      copmove 0,intenar
+   76 00.00000000                                      endm
+   77 00.00000000                      
+   78 00.00000000                      ; copinsM is used to install copper "MOVE" instructions at run time
+   79 00.00000000                      ; Format: copinsM data,destination,location
+   80 00.00000000                      ;       data is a real effective address
+   81 00.00000000                      ;       destination is the i/o register
+   82 00.00000000                      ;       location is where the instruction goes. * MUST BE INDIRECT WITH INCR *
+   83 00.00000000                      ;       eg. copinsM d4,bplcon1,(a3)+
+   84 00.00000000                      ;
+   85 00.00000000                      copinsM         macro
+   86 00.00000000                                      move.w  #(((\2)/2)*2),\3
+   87 00.00000000                                      move.w  \1,\3
+   88 00.00000000                                      endm
+   89 00.00000000                      
+   90 00.00000000                      ; copinsS VP,HP (assumes full-width masks and BFD bit set)
+   91 00.00000000                      ;       eg. copinsS d0,0,(a2)+ or copinsS start,stop,(a0)+
+   92 00.00000000                      ;
+   93 00.00000000                      copinsS         macro
+   94 00.00000000                                      move.b  \1,d0
+   95 00.00000000                                      lsl.w   #8,d0
+   96 00.00000000                                      or.w    \2,d0
+   97 00.00000000                                      or.b    #1,d0
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 3
+MACRO.I
+
+
+   98 00.00000000                                      move.w  d0,\3
+   99 00.00000000                                      move.w  #$FFFF,\3
+  100 00.00000000                                      endm
+  101 00.00000000                      
+  102 00.00000000                      ; copinsW VP,HP (assumes full-width masks and BFD bit set)
+  103 00.00000000                      ;       eg. copinsW d5,d3,(a6)+
+  104 00.00000000                      ;
+  105 00.00000000                      copinsW         macro
+  106 00.00000000                                      move.b  \1,d0
+  107 00.00000000                                      lsl.w   #8,d0
+  108 00.00000000                                      or.w    \2,d0
+  109 00.00000000                                      or.b    #1,d0
+  110 00.00000000                                      move.w  d0,\3
+  111 00.00000000                                      move.w  #$FFFE,\3
+  112 00.00000000                                      endm
+  113 00.00000000                      
+  114 00.00000000                      ; Exit from interrupt server.
+  115 00.00000000                      ; Format: exit (server),  where "server" is the bit in "intreq(pad)"
+  116 00.00000000                      ; whch requested the interrupt.
+  117 00.00000000                      ;
+  118 00.00000000                      exit            macro
+  119 00.00000000                                      move    #\1,d0
+  120 00.00000000                                      bra     finished
+  121 00.00000000                                      endm
+  122 00.00000000                      
+  123 00.00000000                      ; Motorola 'standard' illegal instruction opcode ($4AFC)
+  124 00.00000000                      ; Format: ILLEGAL
+  125 00.00000000                      ;
+  126 00.00000000                      illegal         macro
+  127 00.00000000                                      dc.w    %0100101011111100
+  128 00.00000000                                      endm
+  129 00.00000000                      
+  130 00.00000000                      ; Waveform data table build-up. (16 bytes)
+  131 00.00000000                      ; Format: Wavefrm ADDR,B,C,D
+  132 00.00000000                      ; and:    Wavefrm ADDR,D
+  133 00.00000000                      ; The ADDR is the longword address where the first sample is found, the
+  134 00.00000000                      ; B, C and D parameters are the distance (in BYTES, NOT WORDS) to the
+  135 00.00000000                      ; looping points B, C and C respectively.
+  136 00.00000000                      ;
+  137 00.00000000                      wavefrm         macro
+  138 00.00000000                      
+  139 00.00000000                              ifc     '\3',''
+  140 00.00000000                                      dc.l    (\1)
+  141 00.00000000                                      dc.w    (\2)/2
+  142 00.00000000                                      dc.w    0
+  143 00.00000000                                      dc.l    0
+  144 00.00000000                                      dc.w    0
+  145 00.00000000                                      dc.w    0
+  146 00.00000000                                      mexit
+  147 00.00000000                              endc
+  148 00.00000000                                      dc.l    (\1)            ; address of A          @ 0
+  149 00.00000000                                      dc.w    (\4)/2          ; length                @ 4
+  150 00.00000000                                      dc.w    (\3)/2          ; length from A to C    @ 6
+  151 00.00000000                                      dc.l    ((\1)+(\2))     ; address of B          @ 8
+  152 00.00000000                                      dc.w    ((\3)-(\2))/2   ; length from B to C    @ C
+  153 00.00000000                                      dc.w    ((\4)-(\2))/2   ; length from B to D    @ E
+  154 00.00000000                                      endm
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 4
+MACRO.I
+
+
+  155 00.00000000                      
+  156 00.00000000                      ; "Note" creates note data for the sound data tables (8 bytes)
+  157 00.00000000                      ; Format: note <ID>,<vol>,<total_dur>,<note_dur>,<rate>,<env>,<pb>
+  158 00.00000000                      ; and:    note OFF
+  159 00.00000000                      ;
+  160 00.00000000                      ; Note (!) that the <total_duration> determines for how long the note 
+  161 00.00000000                      ; is to be played. If (<note_duration> == <total_duration>), there will
+  162 00.00000000                      ; be no subsequent pause after the sound.
+  163 00.00000000                      
+  164 00.00000000                      note            macro
+  165 00.00000000                              ifc     '\1','off'
+  166 00.00000000                                      dc.l    $FFFFFFFF,$FFFFFFFF
+  167 00.00000000                                      dc.w    0
+  168 00.00000000                                      mexit
+  169 00.00000000                              endc
+  170 00.00000000                                      dc.b    (\1),(\2)       ; sound ID and volume
+  171 00.00000000                                      dc.w    (\4)            ; sustain note this long
+  172 00.00000000                                      dc.w    (\3)-(\4)       ; pause for this long
+  173 00.00000000                                      dc.w    (\5)            ; rate
+  174 00.00000000                                      dc.b    (\6)            ; envelope #
+  175 00.00000000                                      dc.b    (\7)            ; pitchbender #
+  176 00.00000000                                      endm
+  177 00.00000000                      
+  178 00.00000000                      
+  179 00.00000000                      ; Envelope data structure creator (4 bytes)
+  180 00.00000000                      ; Format: Envelop <distance>, <delta>
+  181 00.00000000                      ; and:    Envelop off
+  182 00.00000000                      ; and:    Envelop goto, <number>
+  183 00.00000000                      ;
+  184 00.00000000                      ; where <number> is another envelope structure index.
+  185 00.00000000                      ; The delta is presented in 256-fractional steps
+  186 00.00000000                      
+  187 00.00000000                      envelop         macro
+  188 00.00000000                              ifc     '\1','off'
+  189 00.00000000                                      dc.l    0               ; No more data in this list
+  190 00.00000000                                      mexit
+  191 00.00000000                              endc
+  192 00.00000000                              ifc     '\1','goto'
+  193 00.00000000                                      dc.w    0
+  194 00.00000000                                      dc.w    (\2)            ; Use this envelope now
+  195 00.00000000                                      mexit
+  196 00.00000000                              endc
+  197 00.00000000                                      dc.w    (\1)            ; Timespan * 20ms
+  198 00.00000000                                      dc.w    (\2)            ; Delta (as 16-bit 2's complement)
+  199 00.00000000                      
+  200 00.00000000                                      endm
+  201 00.00000000                      
+  202 00.00000000                      
+  203 00.00000000                      ; Dynamic condition code flagging:-
+  204 00.00000000                      ; Format: setflag <c|v|z|n|x>   sets appropriate condition code
+  205 00.00000000                      ;         clrflag <c|v|z|n|x>   resets appropriate condition code
+  206 00.00000000                      ;         invflag <c|v|z|n|x>   inverts appropriate condition code
+  207 00.00000000                      
+  208 00.00000000                      setflag         macro
+  209 00.00000000                      
+  210 00.00000000                              ifs     '\1','c'
+  211 00.00000000                                      or      #%00001,CCR
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 5
+MACRO.I
+
+
+  212 00.00000000                              endc
+  213 00.00000000                              ifs     '\1','v'
+  214 00.00000000                                      or      #%00010,CCR
+  215 00.00000000                              endc
+  216 00.00000000                              ifs     '\1','z'
+  217 00.00000000                                      or      #%00100,CCR
+  218 00.00000000                              endc
+  219 00.00000000                              ifs     '\1','n'
+  220 00.00000000                                      or      #%01000,CCR
+  221 00.00000000                              endc
+  222 00.00000000                              ifs     '\1','x'
+  223 00.00000000                                      or      #%10000,CCR
+  224 00.00000000                              endc
+  225 00.00000000                                      endm
+  226 00.00000000                      
+  227 00.00000000                      clrflag         macro
+  228 00.00000000                      
+  229 00.00000000                              ifs     '\1','c'
+  230 00.00000000                                      and     #%00001,CCR
+  231 00.00000000                              endc
+  232 00.00000000                              ifs     '\1','v'
+  233 00.00000000                                      and     #%00010,CCR
+  234 00.00000000                              endc
+  235 00.00000000                              ifs     '\1','z'
+  236 00.00000000                                      and     #%00100,CCR
+  237 00.00000000                              endc
+  238 00.00000000                              ifs     '\1','n'
+  239 00.00000000                                      and     #%01000,CCR
+  240 00.00000000                              endc
+  241 00.00000000                              ifs     '\1','x'
+  242 00.00000000                                      and     #%10000,CCR
+  243 00.00000000                              endc
+  244 00.00000000                                      endm
+  245 00.00000000                      
+  246 00.00000000                      invflag         macro
+  247 00.00000000                      
+  248 00.00000000                              ifs     '\1','c'
+  249 00.00000000                                      eor     #%00001,CCR
+  250 00.00000000                              endc
+  251 00.00000000                              ifs     '\1','v'
+  252 00.00000000                                      eor     #%00010,CCR
+  253 00.00000000                              endc
+  254 00.00000000                              ifs     '\1','z'
+  255 00.00000000                                      eor     #%00100,CCR
+  256 00.00000000                              endc
+  257 00.00000000                              ifs     '\1','n'
+  258 00.00000000                                      eor     #%01000,CCR
+  259 00.00000000                              endc
+  260 00.00000000                              ifs     '\1','x'
+  261 00.00000000                                      eor     #%10000,CCR
+  262 00.00000000                              endc
+  263 00.00000000                                      endm
+  264 00.00000000                      
+  265 00.00000000                      
+  266 00.00000000                      ; Pushing and popping of register lists (longwords) to and from the system 
+  267 00.00000000                      ; stack.
+  268 00.00000000                      ; Format: push <register(s)>
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 6
+MACRO.I
+
+
+  269 00.00000000                      ; or:     pop  <register(s)>
+  270 00.00000000                      ; and:    push all
+  271 00.00000000                      ; or:     pop all
+  272 00.00000000                      
+  273 00.00000000                      push            macro
+  274 00.00000000                      
+  275 00.00000000                              ifs     '\1','all'
+  276 00.00000000                                      movem.l a0-a6/d0-d7,-(sp)
+  277 00.00000000                                      mexit
+  278 00.00000000                              endc
+  279 00.00000000                      
+  280 00.00000000                                      movem.l \1,-(sp)
+  281 00.00000000                                      endm
+  282 00.00000000                      
+  283 00.00000000                      pop             macro
+  284 00.00000000                      
+  285 00.00000000                              ifs     '\1','all'
+  286 00.00000000                                      movem.l (sp)+,a0-a6/d0-d7
+  287 00.00000000                                      mexit
+  288 00.00000000                              endc
+  289 00.00000000                      
+  290 00.00000000                                      movem.l (sp)+,\1
+  291 00.00000000                                      endm
+  292 00.00000000                      
+  293 00.00000000                      
+    0 00.00000000                                      include "equates.i"
+    1 00.00000000                      ;
+    2 00.00000000                      ; Equates ----------------------------------------------------------------------
+    3 00.00000000                      
+    4   =00000064                      level1autovect  equ     $64
+    5 00.00000000                      
+    6 00.00000000                      ;       ----- Exception vectors
+    7   =00000080                      swi0            equ     $80                     ; The sixteen TRAP vectors
+    8   =00000081                      swi1            equ     $81                     ; (software exceptions)
+    9   =00000082                      swi2            equ     $82
+   10   =00000083                      swi3            equ     $83
+   11   =00000084                      swi4            equ     $84
+   12   =00000085                      swi5            equ     $85
+   13   =00000086                      swi6            equ     $86
+   14   =00000087                      swi7            equ     $87
+   15   =00000088                      swi8            equ     $88
+   16   =00000089                      swi9            equ     $89
+   17   =0000008A                      swiA            equ     $8A
+   18   =0000008B                      swiB            equ     $8B
+   19   =0000008C                      swiC            equ     $8C
+   20   =0000008D                      swiD            equ     $8D
+   21   =0000008E                      swiE            equ     $8E
+   22   =0000008F                      swiF            equ     $8F
+   23 00.00000000                      
+   24 00.00000000                      ;       ----- specific info on memory
+   25   =00DFF000                      custom          equ     $DFF000                 ; base of custom registers
+   26   =00000030                      window_width    equ     48                      ; bytes across
+   27   =00000100                      window_height   equ     256                     ; lines downwards
+   28   =00000004                      window_depth    equ     4                       ; bitplanes inwards
+   29   =00003000                      window_size     equ     window_width*window_height
+   30   =00001000                      plane1          equ     $1000                   ; addr of bitplane #1
+   31   =00004000                      plane2          equ     plane1+window_size
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 7
+EQUATES.I
+
+
+   32   =00007000                      plane3          equ     plane2+window_size
+   33   =0000A000                      plane4          equ     plane3+window_size
+   34   =0000D000                      plane5          equ     plane4+window_size
+   35   =00080000                      ramtop          equ     $80000
+   36 00.00000000                      
+   37 00.00000000                      ;       ----- Some frequently used colour codes
+   38   =00000FFF                      white           equ     $FFF
+   39   =00000D00                      brick_red       equ     $D00
+   40   =00000F00                      red             equ     $F00
+   41   =00000F80                      red_orange      equ     $F80
+   42   =00000F90                      orange          equ     $F90
+   43   =00000FB0                      golden_orange   equ     $FB0
+   44   =00000FD0                      cadmium_yellow  equ     $FD0
+   45   =00000FF0                      lemon_yellow    equ     $FF0
+   46   =00000FB0                      lime_green      equ     $FB0
+   47   =000008E0                      light_green     equ     $8E0
+   48   =000000F0                      green           equ     $0F0
+   49   =000002C0                      dark_green      equ     $2C0
+   50   =000000B1                      forest_green    equ     $0B1
+   51   =000000BB                      blue_green      equ     $0BB
+   52   =000000DB                      aqua            equ     $0DB
+   53   =000001FB                      light_aqua      equ     $1FB
+   54   =000006FE                      sky_blue        equ     $6FE
+   55   =000006CE                      light_blue      equ     $6CE
+   56   =0000000F                      blue            equ     $00F
+   57   =0000061F                      bright_blue     equ     $61F
+   58   =0000006D                      dark_blue       equ     $06D
+   59   =0000091F                      purple          equ     $91F
+   60   =00000C1F                      violet          equ     $C1F
+   61   =00000F1F                      magenta         equ     $F1F
+   62   =00000FAC                      pink            equ     $FAC
+   63   =00000DB9                      tangerine       equ     $DB9
+   64   =00000C80                      brown           equ     $C80
+   65   =00000A87                      dark_brown      equ     $A87
+   66   =00000CCC                      light_grey      equ     $CCC
+   67   =00000999                      medium_grey     equ     $999
+   68   =00000666                      dark_grey       equ     $666
+   69   =00000000                      black           equ     $000
+   70   =00000FF0                      yellow          equ     $FF0
+   71   =000000FF                      cyan            equ     $0FF
+   72 00.00000000                      
+   73 00.00000000                      pad             equr    a6                      ; Paula, Agnus, Denise base
+   74 00.00000000                      
+   75 00.00000000                      ;
+   76 00.00000000                      ; Bit positions for interrupt registers and DMA control registers.
+   77 00.00000000                      ; Note: names with 'x' on the end are the actual absolute BIT NUMBER, whereas
+   78 00.00000000                      ; the name without the 'x' is the BIT PATTERN, or MASK.
+   79 00.00000000                      ;
+   80   =00000000                      clrbitx         equ     (00)    ; set/clr (use clrbit to clr, setbit to set)
+   81   =0000000F                      setbitx         equ     (15)    ; set/clear control bit
+   82   =0000000E                      intenx          equ     (14)    ; master interrupt (enable only )
+   83   =0000000D                      exterx          equ     (13)    ; external interrupt
+   84   =0000000C                      dsksynx         equ     (12)    ; disk re-synchronized
+   85   =0000000B                      rbfx            equ     (11)    ; equrial port receive buffer full
+   86   =0000000A                      audio3x         equ     (10)    ; audio channel 3 block finished
+   87   =00000009                      audio2x         equ     (09)    ; audio channel 2 block finished
+   88   =00000008                      audio1x         equ     (08)    ; audio channel 1 block finished
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 8
+EQUATES.I
+
+
+   89   =00000007                      audio0x         equ     (07)    ; audio channel 0 block finished
+   90   =00000006                      blitx           equ     (06)    ; blitter finished
+   91   =00000005                      vertbx          equ     (05)    ; start of vertical blank
+   92   =00000004                      coperx          equ     (04)    ; coprocessor
+   93   =00000003                      portsx          equ     (03)    ; i/o ports and timers
+   94   =00000002                      softintx        equ     (02)    ; software interrupt request
+   95   =00000001                      dskblx          equ     (01)    ; disk block done
+   96   =00000000                      tbex            equ     (00)    ; serial port transmit buffer empty
+   97   =0000000E                      bbusyx          equ     (14)    ; blitter busy (r/o)
+   98   =0000000D                      bzerox          equ     (13)    ; blitter logic 0 (r/o)
+   99   =0000000A                      bltprix         equ     (10)    ; "blitter-nasty", DMA priority
+  100   =00000009                      dmaenx          equ     (09)    ; DMA master enable
+  101   =00000008                      bplenx          equ     (08)    ; Bit-plane DMA enable
+  102   =00000007                      copenx          equ     (07)    ; Copper DMA enable
+  103   =00000006                      bltenx          equ     (06)    ; Blitter DMA enable
+  104   =00000005                      sprenx          equ     (05)    ; Sprite DMA enable
+  105   =00000004                      dskenx          equ     (04)    ; Disk DMA enable
+  106   =00000003                      aud3enx         equ     (03)    ; Aul 3 enable
+  107   =00000002                      aud2enx         equ     (02)    ; - 2 enable
+  108   =00000001                      aud1enx         equ     (01)    ; - 1 enable
+  109   =00000000                      aud0enx         equ     (00)    ; - 0 enable
+  110   =00007FFF                      clrall          equ     $7FFF   ; writing this pattern resets all bits
+  111   =0000FFFF                      setall          equ     $FFFF   ; and this sets them all
+  112 00.00000000                      ;
+  113   =00000000                      clrbit          equ     (0<<15)
+  114   =00008000                      setbit          equ     (1<<15)
+  115   =00004000                      inten           equ     (1<<14)
+  116   =00002000                      exter           equ     (1<<13)
+  117   =00001000                      dsksyn          equ     (1<<12)
+  118   =00000800                      rbf             equ     (1<<11)
+  119   =00000400                      audio3          equ     (1<<10)
+  120   =00000200                      audio2          equ     (1<<09)
+  121   =00000100                      audio1          equ     (1<<08)
+  122   =00000080                      audio0          equ     (1<<07)
+  123   =00000040                      blit            equ     (1<<06)
+  124   =00000020                      vertb           equ     (1<<05)
+  125   =00000010                      coper           equ     (1<<04)
+  126   =00000008                      ports           equ     (1<<03)
+  127   =00000004                      softint         equ     (1<<02)
+  128   =00000002                      dskbl           equ     (1<<01)
+  129   =00000001                      tbe             equ     (1<<00)
+  130   =00004000                      bbusy           equ     (1<<14)
+  131   =00002000                      bzero           equ     (1<<13)
+  132   =00000400                      bltpri          equ     (1<<10)
+  133   =00000200                      dmaen           equ     (1<<09)
+  134   =00000100                      bplen           equ     (1<<08)
+  135   =00000080                      copen           equ     (1<<07)
+  136   =00000040                      blten           equ     (1<<06)
+  137   =00000020                      spren           equ     (1<<05)
+  138   =00000010                      dsken           equ     (1<<04)
+  139   =00000008                      aud3en          equ     (1<<03)
+  140   =00000004                      aud2en          equ     (1<<02)
+  141   =00000002                      aud1en          equ     (1<<01)
+  142   =00000001                      aud0en          equ     (1<<00)
+  143 00.00000000                      
+  144 00.00000000                      ;       ----- Custom register names, almost as in the hardware manual
+  145   =00000000                      bltddat         equ     $000
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 9
+EQUATES.I
+
+
+  146   =00000002                      dmaconr         equ     $002
+  147   =00000004                      vposr           equ     $004
+  148   =00000006                      vhposr          equ     $006
+  149   =00000008                      dskdatr         equ     $008
+  150   =0000000A                      joy0dat         equ     $00A
+  151   =0000000C                      joy1dat         equ     $00C
+  152   =0000000E                      clxdat          equ     $00E
+  153 00.00000000                      
+  154   =00000010                      adkconr         equ     $010
+  155   =00000012                      pot0dat         equ     $012
+  156   =00000014                      pot1dat         equ     $014
+  157   =00000016                      potinp          equ     $016
+  158   =00000018                      serdatr         equ     $018
+  159   =0000001A                      dskbytr         equ     $01A
+  160   =0000001C                      intenar         equ     $01C
+  161   =0000001E                      intreqr         equ     $01E
+  162 00.00000000                      
+  163   =00000020                      dskpt           equ     $020
+  164   =00000024                      dsklen          equ     $024
+  165   =00000026                      dskdat          equ     $026
+  166   =00000028                      refptr          equ     $028
+  167   =0000002A                      vposw           equ     $02A
+  168   =0000002C                      vhposw          equ     $02C
+  169   =0000002E                      copcon          equ     $02E
+  170   =00000030                      serdat          equ     $030
+  171   =00000032                      serper          equ     $032
+  172   =00000034                      potgo           equ     $034
+  173   =00000036                      joytest         equ     $036
+  174   =00000038                      str             equ     $038
+  175   =0000003A                      strvbl          equ     $03A
+  176   =0000003C                      strhor          equ     $03C
+  177   =0000003E                      strlong         equ     $03E
+  178 00.00000000                      
+  179   =00000040                      bltcon0         equ     $040
+  180   =00000042                      bltcon1         equ     $042
+  181   =00000044                      bltafwm         equ     $044
+  182   =00000046                      bltalwm         equ     $046
+  183   =00000048                      bltcptr         equ     $048
+  184   =0000004C                      bltbptr         equ     $04C
+  185   =00000050                      bltaptr         equ     $050
+  186   =00000054                      bltdptr         equ     $054
+  187   =00000058                      bltsize         equ     $058
+  188 00.00000000                      
+  189   =00000060                      bltcmod         equ     $060
+  190   =00000062                      bltbmod         equ     $062
+  191   =00000064                      bltamod         equ     $064
+  192   =00000066                      bltdmod         equ     $066
+  193 00.00000000                      
+  194   =00000070                      bltcdat         equ     $070
+  195   =00000072                      bltbdat         equ     $072
+  196   =00000074                      bltadat         equ     $074
+  197 00.00000000                      
+  198   =0000007E                      dsksync         equ     $07E
+  199 00.00000000                      
+  200   =00000080                      cop1lc          equ     $080
+  201   =00000084                      cop2lc          equ     $084
+  202   =00000088                      copjmp1         equ     $088
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 10
+EQUATES.I
+
+
+  203   =0000008A                      copjmp2         equ     $08A
+  204   =0000008C                      copins          equ     $08C
+  205   =0000008E                      diwstrt         equ     $08E
+  206   =00000090                      diwstop         equ     $090
+  207   =00000092                      ddfstrt         equ     $092
+  208   =00000094                      ddfstop         equ     $094
+  209   =00000096                      dmacon          equ     $096
+  210   =00000098                      clxcon          equ     $098
+  211   =0000009A                      intena          equ     $09A
+  212   =0000009C                      intreq          equ     $09C
+  213   =0000009E                      adkcon          equ     $09E
+  214 00.00000000                      
+  215   =000000A0                      audio           equ     $0A0
+  216   =00000000                      audptr          equ     0
+  217   =00000000                      audlc           equ     0
+  218   =00000000                      audlch          equ     0
+  219   =00000004                      audlen          equ     4
+  220   =00000006                      audper          equ     6
+  221   =00000008                      audvol          equ     8
+  222 00.00000000                      
+  223   =000000A0                      aud0lc          equ     $0A0
+  224   =000000A0                      aud0lch         equ     $0A0
+  225   =000000A2                      aud0lcl         equ     $0A2
+  226   =000000A4                      aud0len         equ     $0A4
+  227   =000000A6                      aud0per         equ     $0A6
+  228   =000000A8                      aud0vol         equ     $0A8
+  229   =000000AA                      aud0dat         equ     $0AA
+  230 00.00000000                      
+  231   =000000B0                      aud1lc          equ     $0B0
+  232   =000000B0                      aud1lch         equ     $0B0
+  233   =000000B2                      aud1lcl         equ     $0B2
+  234   =000000B4                      aud1len         equ     $0B4
+  235   =000000B6                      aud1per         equ     $0B6
+  236   =000000B8                      aud1vol         equ     $0B8
+  237   =000000BA                      aud1dat         equ     $0BA
+  238 00.00000000                      
+  239   =000000C0                      aud2lc          equ     $0C0
+  240   =000000C0                      aud2lch         equ     $0C0
+  241   =000000C2                      aud2lcl         equ     $0C2
+  242   =000000C4                      aud2len         equ     $0C4
+  243   =000000C6                      aud2per         equ     $0C6
+  244   =000000C8                      aud2vol         equ     $0C8
+  245   =000000CA                      aud2dat         equ     $0CA
+  246 00.00000000                      
+  247   =000000D0                      aud3lc          equ     $0D0
+  248   =000000D0                      aud3lch         equ     $0D0
+  249   =000000D2                      aud3lcl         equ     $0D2
+  250   =000000D4                      aud3len         equ     $0D4
+  251   =000000D6                      aud3per         equ     $0D6
+  252   =000000D8                      aud3vol         equ     $0D8
+  253   =000000DA                      aud3dat         equ     $0DA
+  254 00.00000000                      
+  255   =000000E0                      bplpt           equ     $0E0
+  256   =000000E0                      bpl1pth         equ     $0E0
+  257   =000000E2                      bpl1ptl         equ     $0E2
+  258   =000000E4                      bpl2pth         equ     $0E4
+  259   =000000E6                      bpl2ptl         equ     $0E6
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 11
+EQUATES.I
+
+
+  260   =000000E8                      bpl3pth         equ     $0E8
+  261   =000000EA                      bpl3ptl         equ     $0EA
+  262   =000000EC                      bpl4pth         equ     $0EC
+  263   =000000EE                      bpl4ptl         equ     $0EE
+  264   =000000F0                      bpl5pth         equ     $0F0
+  265   =000000F2                      bpl5ptl         equ     $0F2
+  266   =000000F4                      bpl6pth         equ     $0F4
+  267   =000000F6                      bpl6ptl         equ     $0F6
+  268   =00000100                      bplcon0         equ     $100
+  269   =00000102                      bplcon1         equ     $102
+  270   =00000104                      bplcon2         equ     $104
+  271   =00000108                      bpl1mod         equ     $108
+  272   =0000010A                      bpl2mod         equ     $10A
+  273 00.00000000                      
+  274   =00000120                      sprpt           equ     $120
+  275   =00000120                      spr0pt          equ     $120
+  276   =00000124                      spr1pt          equ     $124
+  277   =00000128                      spr2pt          equ     $128
+  278   =0000012C                      spr3pt          equ     $12C
+  279   =00000130                      spr4pt          equ     $130
+  280   =00000134                      spr5pt          equ     $134
+  281   =00000138                      spr6pt          equ     $138
+  282   =0000013C                      spr7pt          equ     $13C
+  283 00.00000000                      
+  284   =00000180                      color           equ     $180
+  285   =00000180                      color0          equ     $180
+  286   =00000182                      color1          equ     $182
+  287   =00000184                      color2          equ     $184
+  288   =00000186                      color3          equ     $186
+  289   =00000188                      color4          equ     $188
+  290   =0000018A                      color5          equ     $18A
+  291   =0000018C                      color6          equ     $18C
+  292   =0000018E                      color7          equ     $18E
+  293   =00000190                      color8          equ     $190
+  294   =00000192                      color9          equ     $192
+  295   =00000194                      color10         equ     $194
+  296   =00000196                      color11         equ     $196
+  297   =00000198                      color12         equ     $198
+  298   =0000019A                      color13         equ     $19A
+  299   =0000019C                      color14         equ     $19C
+  300   =0000019E                      color15         equ     $19E
+  301   =000001A0                      color16         equ     $1A0
+  302   =000001A2                      color17         equ     $1A2
+  303   =000001A4                      color18         equ     $1A4
+  304   =000001A6                      color19         equ     $1A6
+  305   =000001A8                      color20         equ     $1A8
+  306   =000001AA                      color21         equ     $1AA
+  307   =000001AC                      color22         equ     $1AC
+  308   =000001AE                      color23         equ     $1AE
+  309   =000001B0                      color24         equ     $1B0
+  310   =000001B2                      color25         equ     $1B2
+  311   =000001B4                      color26         equ     $1B4
+  312   =000001B6                      color27         equ     $1B6
+  313   =000001B8                      color28         equ     $1B8
+  314   =000001BA                      color29         equ     $1BA
+  315   =000001BC                      color30         equ     $1BC
+  316   =000001BE                      color31         equ     $1BE
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 12
+EQUATES.I
+
+
+  317 00.00000000                      
+  318 00.00000000                      
+  319 00.00000000                      
+  320 00.00000000                      
+   19 00.00000000                      
+   20 00.00000000                                      section _main,CODE_F
+   21 00.00000000                      
+   22 00.00000000 4DF900DFF000         sequencer       lea     custom,pad              ; Keep this always in a6
+   23 00.00000006 4FF900080000                         lea     ramtop,sp               ; Keep this in a7 at all times
+   24 00.0000000C                      
+   25 00.0000000C 3D7C7FFF009A                         move    #clrall,intena(pad)     ; Kill IRQs
+   26 00.00000012 3D7C7FFF0096                         move    #clrall,dmacon(pad)     ; Kill DMAs
+   27 00.00000018                      
+   28 00.00000018 4EB900000000                         jsr     debuginit
+   29 00.0000001E                      
+   30 00.0000001E 41F900000000                         lea     IRQvectortable,a0       ; Set up IRQ vectors
+   31 00.00000024 43F80064                             lea     level1autovect,a1
+   32 00.00000028 7006                                 moveq   #7-1,d0
+   33 00.0000002A 22D8                 initialise      move.l  (a0)+,(a1)+
+   34 00.0000002C 51C8FFFC                             dbra    d0,initialise
+   35 00.00000030                      
+   36 00.00000030 2D7C0000001C0080                     move.l  #copperlist,cop1lc(pad)
+   37 00.00000038 302E0088                             move    copjmp1(pad),d0
+   38 00.0000003C 3D7C00FF009E                         move    #%11111111,adkcon(pad)  ; no modulation
+   39 00.00000042                      
+   40 00.00000042 3D7CC7A0009A                         move    #setbit+inten+vertb+audio3+audio2+audio1+audio0,intena(pad)
+   41 00.00000048 3D7C83800096                         move    #setbit+dmaen+copen+bplen,dmacon(pad)
+   42 00.0000004E                      
+   43 00.0000004E 7001                                 moveq   #1,d0
+   44 00.00000050 61000032                             bsr     tune_start
+   45 00.00000054                      
+   46 00.00000054                      kill            
+   47 00.00000054 41F900000028                         lea     voiceinfoblock,a0
+   48 00.0000005A 20280018                             move.l  curpitch(a0),d0
+   49 00.0000005E 32280014                             move    pitchbenddelta(a0),d1
+   50 00.00000062 34280010                             move    pitchbenddelay(a0),d2
+   51 00.00000066 163900000044                         move.b  voiceinfoblock+voxstatus,d3
+   52 00.0000006C 38280004                             move    durationcounter(a0),d4
+   53 00.00000070 3A280016                             move    curvolume(a0),d5
+   54 00.00000074 3C280012                             move    envdelta(a0),d6
+   55 00.00000078 3E28000A                             move    envdelay(a0),d7
+   56 00.0000007C                      
+   57 00.0000007C 4EB9000000C4                         jsr     debug
+   58 00.00000082                      
+   59 00.00000082 60D0                                 bra     kill
+   60 00.00000084                      
+   61 00.00000084                      
+   62 00.00000084                      ; Run a tune    d0=tune no.
+   63 00.00000084 41F9000000A4         tune_start      lea     tune_table-4,a0
+   64 00.0000008A E548                                 lsl     #2,d0                   ; *4 for a longword/entry
+   65 00.0000008C 20700000                             move.l  (a0,d0),a0              ; a0 now points to tune's header
+   66 00.00000090                      
+   67 00.00000090 43F900000028                         lea     voiceinfoblock,a1
+   68 00.00000096 7003                                 moveq   #4-1,d0
+   69 00.00000098 2298                 tune_start1     move.l  (a0)+,(a1)              ; Initialise addresses of note data
+   70 00.0000009A D2FC0020                             add     #voiceinfolength,a1     ; for all channels 3-2-1-0
+   71 00.0000009E 51C8FFF8                             dbra    d0,tune_start1
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 13
+
+
+
+   72 00.000000A2 7603                                 moveq   #4-1,d3
+   73 00.000000A4 383C8008                             move    #$8008,d4
+   74 00.000000A8 3003                 tune_start2     move    d3,d0
+   75 00.000000AA 61000024                             bsr     start_channel           ; 3-2-1-0
+   76 00.000000AE 6704                                 beq.s   no_sound_here
+   77 00.000000B0 3D440096                             move    d4,dmacon(pad)          ; start DMA for this channel
+   78 00.000000B4 E20C                 no_sound_here   lsr.b   #1,d4
+   79 00.000000B6 51CBFFF0                             dbra    d3,tune_start2
+   80 00.000000BA 4E75                                 rts
+   81 00.000000BC                      
+   82 00.000000BC                      
+   83 00.000000BC                      ; Find a free channel (with DMA disabled, voxstatus = playing_off)
+   84 00.000000BC                      ; returns EQ and d0=channel (0-3) if free
+   85 00.000000BC                      ;         NE (d0=FF) if no free channels
+   86 00.000000BC                      
+   87 00.000000BC 41F900000024         find_channel    lea     voiceinfoblock+voxstatus-voiceinfolength,a0
+   88 00.000000C2 7003                                 moveq   #4-1,d0
+   89 00.000000C4 D0FC0020             find_channels   add     #voiceinfolength,a0
+   90 00.000000C8 4A50                                 tst     (a0)                    ; test for playing_off (== 0)
+   91 00.000000CA 56C8FFF8                             dbne    d0,find_channels
+   92 00.000000CE 4E75                                 rts
+   93 00.000000D0                      
+   94 00.000000D0                      
+   95 00.000000D0                      ; Renewing the channels by calling update_chx will inevitably force that
+   96 00.000000D0                      ; channel to play the next note in the respective track.
+   97 00.000000D0                      ; D0.W = channel to update (0-3)
+   98 00.000000D0                      ; returns NE if ok, eq if no more notes
+   99 00.000000D0                      ; uses & destroys d0-d2/a0-a2
+  100 00.000000D0                      
+  101 00.000000D0 3400                 start_channel   move    d0,d2
+  102 00.000000D2 E948                                 lsl     #4,d0
+  103 00.000000D4 43F900000028                         lea     voiceinfoblock,a1
+  104 00.000000DA D2C0                                 add     d0,a1
+  105 00.000000DC D2C0                                 add     d0,a1                   ; a1 points to entry+1 (for downwards clear)
+  106 00.000000DE 064000A0                             add     #audio,d0               ; now -> chip address audio
+  107 00.000000E2                      
+  108 00.000000E2 20690000                             move.l  noteaddr(a1),a0         ; address of note
+  109 00.000000E6 7200                                 moveq   #0,d1
+  110 00.000000E8 12280000                             move.b  soundid(a0),d1          ; (soundid) which waveform?
+  111 00.000000EC 6B00009A                             bmi     lastnote                ; but there are no more notes
+  112 00.000000F0 E949                                 lsl     #4,d1                   ; 16 bytes each
+  113 00.000000F2 45F90000012C                         lea     voicetable-voxtablelength,a2
+  114 00.000000F8 D4C1                                 add     d1,a2                   ; a2 now -> waveformtable
+  115 00.000000FA                      
+  116 00.000000FA 3DA800060006                         move    period(a0),audper(pad,d0)       ; AUDxPER
+  117 00.00000100 336800060018                         move    period(a0),curpitch(a1)
+  118 00.00000106                      
+  119 00.00000106 7200                                 moveq   #0,d1
+  120 00.00000108 12280001                             move.b  volume(a0),d1
+  121 00.0000010C 3D810008                             move    d1,audvol(pad,d0)       ; AUDxVOL
+  122 00.00000110 13410016                             move.b  d1,curvolume(a1)
+  123 00.00000114                      
+  124 00.00000114 336800020004                         move    duration(a0),durationcounter(a1)        
+  125 00.0000011A                      
+  126 00.0000011A 2DAA00000000                         move.l  voxA(a2),audptr(pad,d0) ; VOXA is zero
+  127 00.00000120 7401                                 moveq   #playing_AtoC,d2
+  128 00.00000122 322A0006                             move    voxX(a2),d1             ; length from A to C
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 14
+
+
+
+  129 00.00000126 6606                                 bne.s   ch1_looped              ; jump if loop-type waveform
+  130 00.00000128 322A0004                             move    voxL(a2),d1             ; use length of whole sample
+  131 00.0000012C 7404                                 moveq   #playing_BtoD,d2        ; pretend playing B->D
+  132 00.0000012E                      
+  133 00.0000012E 3D810004             ch1_looped      move    d1,audlen(pad,d0)       ; store length in AUDxLEN
+  134 00.00000132 1342001C                             move.b  d2,voxstatus(a1)        ; playing a->c
+  135 00.00000136                      
+  136 00.00000136 7000                                 moveq   #0,d0
+  137 00.00000138 3340000A                             move    d0,envdelay(a1)         ; assume no envelope
+  138 00.0000013C 10280008                             move.b  envelope(a0),d0         ; any envelope?
+  139 00.00000140 671A                                 beq.s   ch1_no_envelope
+  140 00.00000142                      
+  141 00.00000142 E548                                 lsl     #2,d0                   ; 4 bytes per address entry
+  142 00.00000144 45F900000108                         lea     envelopetable-4,a2
+  143 00.0000014A 24720000                             move.l  (a2,d0),a2              ; a2 is now address of envelope
+  144 00.0000014E 234A0006                             move.l  a2,envaddr(a1)          ; set up envelope address
+  145 00.00000152 3352000A                             move    (a2),envdelay(a1)       ; set up envelope delay
+  146 00.00000156 336A00020012                         move    envoffset(a2),envdelta(a1) ; set up envelope delta
+  147 00.0000015C                      
+  148 00.0000015C 7000                 ch1_no_envelope moveq   #0,d0
+  149 00.0000015E 33400010                             move    d0,pitchbenddelay(a1)   ; assume no pitchbending
+  150 00.00000162 10280009                             move.b  pitchbender(a0),d0      ; any pitch bending?
+  151 00.00000166 671A                                 beq.s   ch1_no_pbend
+  152 00.00000168                      
+  153 00.00000168 E548                                 lsl     #2,d0                   ; 4 bytes per address entry
+  154 00.0000016A 45F900000108                         lea     envelopetable-4,a2
+  155 00.00000170 24720000                             move.l  (a2,d0),a2              ; a2 is now address of envelope
+  156 00.00000174 234A000C                             move.l  a2,pitchbendaddr(a1)    ; set up pitchbend address
+  157 00.00000178 33520010                             move    (a2),pitchbenddelay(a1) ; set up pitchbend delay
+  158 00.0000017C 336A00020014                         move    envoffset(a2),pitchbenddelta(a1)
+  159 00.00000182                      
+  160 00.00000182 023C001B             ch1_no_pbend    and     #%11011,CCR             ; set zero flag = success
+  161 00.00000186 4E75                                 rts
+  162 00.00000188                      
+  163 00.00000188 7000                 lastnote        moveq   #0,d0
+  164 00.0000018A 05C0                                 bset    d2,d0                   ; set for DMA register
+  165 00.0000018C 3D400096                             move    d0,dmacon(pad)          ; now shut it up
+  166 00.00000190 EF48                                 lsl     #7,d0                   ; rotate for IRQ reg.
+  167 00.00000192 3D40009A                             move    d0,intena(pad)
+  168 00.00000196 137C0000001C                         move.b  #playing_off,voxstatus(a1)      ; silencio! (and NZ = no DMA)
+  169 00.0000019C 4E75                                 rts
+  170 00.0000019E                      
+  171 00.0000019E                      
+  172 00.0000019E                      ; LEVEL 4 INTERRUPT REQUEST SERVER ENTRY POINT
+  173 00.0000019E                      ; --------------------------------------------
+  174 00.0000019E                      ;
+  175 00.0000019E                      ; Audio channel 3/2/1/0 block finished (initiated)
+  176 00.0000019E                      ;
+  177 00.0000019E                      
+  178 00.0000019E 48E7E0E0             level4          movem.l d0-d2/a0-a2,-(sp)
+  179 00.000001A2                      
+  180 00.000001A2 322E001E                             move    intreqr(pad),d1         ; what bits
+  181 00.000001A6 02410780                             and     #$0780,d1               ; only audio bits
+  182 00.000001AA 3D41009C                             move    d1,intreq(pad)          ; clear it (bit 15 clear)
+  183 00.000001AE 3401                                 move    d1,d2                   ; keep copy here
+  184 00.000001B0                      
+  185 00.000001B0 7006                                 moveq   #6,d0                   ; test bit
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 15
+
+
+
+  186 00.000001B2 5240                 find4src        addq    #1,d0
+  187 00.000001B4 0101                                 btst    d0,d1
+  188 00.000001B6 67FA                                 beq.s   find4src
+  189 00.000001B8 5F40                                 subq    #7,d0                   ; D0 now holds channel 0-3
+  190 00.000001BA                      
+  191 00.000001BA E948                                 lsl     #4,d0                   ; *8
+  192 00.000001BC 41F900000028                         lea     voiceinfoblock,a0
+  193 00.000001C2 D0C0                                 add     d0,a0
+  194 00.000001C4 D0C0                                 add     d0,a0                   ; * 32 (current size of voxinfoblock)
+  195 00.000001C6 064000A0                             add     #audio,d0
+  196 00.000001CA 22680000                             move.l  noteaddr(a0),a1         ; noteaddr
+  197 00.000001CE                      
+  198 00.000001CE 7200                                 moveq   #0,d1
+  199 00.000001D0 12290000                             move.b  soundid(a1),d1          ; waveform no.
+  200 00.000001D4 E949                                 lsl     #4,d1                   ; 16 bytes/waveform entry
+  201 00.000001D6 45F90000012C                         lea     voicetable-voxtablelength,a2
+  202 00.000001DC D4C1                                 add     d1,a2                   ; A0->voxinfo,A1->note,A2->waveform
+  203 00.000001DE                      
+  204 00.000001DE 0C280001001C                         cmp.b   #playing_AtoC,voxstatus(a0)     ; one-shot part done?
+  205 00.000001E4 674C                                 beq.s   audioloop                       ; time for looping sequence
+  206 00.000001E6 0C280003001C                         cmp.b   #playing_BtoC,voxstatus(a0)     ; was it playing b to c?
+  207 00.000001EC 672C                                 beq.s   audioend
+  208 00.000001EE 0C280004001C                         cmp.b   #playing_BtoD,voxstatus(a0)     ; was it playing b to d?
+  209 00.000001F4 6706                                 beq.s   audiosilence
+  210 00.000001F6                      
+  211 00.000001F6 4CDF0707                             movem.l (sp)+,d0-d2/a0-a2
+  212 00.000001FA 4E73                                 rte
+  213 00.000001FC                      
+  214 00.000001FC 2DBC0000016C0000     audiosilence    move.l  #silence,audptr(pad,d0)         ; zeros
+  215 00.00000204 3DBC00600004                         move    #96,audlen(pad,d0)              ; length
+  216 00.0000020A 117C0005001C                         move.b  #playing_zero,voxstatus(a0)
+  217 00.00000210 3D42009A                             move    d2,intena(pad)                  ; stop IRQ for that channel
+  218 00.00000214                      
+  219 00.00000214 4CDF0707                             movem.l (sp)+,d0-d2/a0-a2
+  220 00.00000218 4E73                                 rte
+  221 00.0000021A                      
+  222 00.0000021A 2DAA00080000         audioend        move.l  voxB(a2),audptr(pad,d0)         ; from B
+  223 00.00000220 3DAA000E0004                         move    voxZ(a2),audlen(pad,d0)         ; to D
+  224 00.00000226 117C0004001C                         move.b  #playing_BtoD,voxstatus(a0)
+  225 00.0000022C                      
+  226 00.0000022C 4CDF0707                             movem.l (sp)+,d0-d2/a0-a2
+  227 00.00000230 4E73                                 rte
+  228 00.00000232                      
+  229 00.00000232 2DAA00080000         audioloop       move.l  voxB(a2),audptr(pad,d0)         ; from B
+  230 00.00000238 3DAA000C0004                         move    voxY(a2),audlen(pad,d0)         ; to C          
+  231 00.0000023E 117C0002001C                         move.b  #looping_BtoC,voxstatus(a0)     ; looping
+  232 00.00000244 3D42009A                             move    d2,intena(pad)                  ; disable IRQ for this channel
+  233 00.00000248                      
+  234 00.00000248 4CDF0707                             movem.l (sp)+,d0-d2/a0-a2
+  235 00.0000024C 4E73                                 rte
+  236 00.0000024E                      
+  237 00.0000024E                      
+  238 00.0000024E                      ; LEVEL 3 INTERRUPT REQUEST SERVER ENTRY POINT
+  239 00.0000024E                      ; --------------------------------------------
+  240 00.0000024E                      ;
+  241 00.0000024E                      ; Start of vertical blank (raster beam retrace)
+  242 00.0000024E                      ; Blitter finished
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 16
+
+
+
+  243 00.0000024E                      ; Copper requesting 68000
+  244 00.0000024E                      
+  245 00.0000024E 48E7FFFC             level3          movem.l d0-d7/a0-a5,-(sp)
+  246 00.00000252                      
+  247 00.00000252 322E001E                             move    intreqr(pad),d1
+  248 00.00000256 02410070                             and     #$0070,d1
+  249 00.0000025A 3D41009C                             move    d1,intreq(pad)
+  250 00.0000025E                      
+  251 00.0000025E 08010004                             btst    #coperx,d1                      ; Copper interrupt
+  252 00.00000262 660C                                 bne.s   copperirq
+  253 00.00000264 08010005                             btst    #vertbx,d1
+  254 00.00000268 660C                                 bne.s   vblankirq                       ; Vertical Blank IRQ
+  255 00.0000026A                      
+  256 00.0000026A                      ;       ----- Blitter finished
+  257 00.0000026A                      blitterirq      
+  258 00.0000026A 4CDF3FFF             blitteruirqend  movem.l (sp)+,d0-d7/a0-a5       ; Blitter IRQ
+  259 00.0000026E 4E73                                 rte
+  260 00.00000270                      
+  261 00.00000270                      ;       ----- Copper finished
+  262 00.00000270                      copperirq
+  263 00.00000270 4CDF3FFF             copperirqend    movem.l (sp)+,d0-d7/a0-a5
+  264 00.00000274 4E73                                 rte
+  265 00.00000276                      
+  266 00.00000276                      ;       ----- Vertical blank
+  267 00.00000276                      vblankirq
+  268 00.00000276                      
+  269 00.00000276 7603                 update_audio    moveq   #4-1,d3                 ; run through 4 channels
+  270 00.00000278 47F900000088                         lea     3*voiceinfolength+voiceinfoblock,a3     
+  271 00.0000027E                      
+  272 00.0000027E 4A6B0004             audiorefresh    tst     durationcounter(a3)     ; 50Hz ticker
+  273 00.00000282 6736                                 beq.s   audio_effects           ; jump if already zero (and don't store)
+  274 00.00000284 536B0004                             subq    #1,durationcounter(a3)  ; decrement
+  275 00.00000288 6630                                 bne.s   audio_effects           ; store and jump if not yet zero
+  276 00.0000028A                      
+  277 00.0000028A 303C0100                             move    #$100,d0                ; Enable IRQ for this channel
+  278 00.0000028E 07C0                                 bset    d3,d0
+  279 00.00000290 EF58                                 rol     #7,d0
+  280 00.00000292 3D40009A                             move    d0,intena(pad)
+  281 00.00000296                      
+  282 00.00000296 0C2B0002001C                         cmp.b   #looping_BtoC,voxstatus(a3)     ; was it looping?
+  283 00.0000029C 6610                                 bne.s   audio_new                       ; no, it was silent
+  284 00.0000029E                      
+  285 00.0000029E 177C0003001C                         move.b  #playing_BtoC,voxstatus(a3)     ; play it ONCE more
+  286 00.000002A4 2053                                 move.l  (a3),a0                         ; note address
+  287 00.000002A6 376800040004                         move    pause(a0),durationcounter(a3)   ; pause delay already here!
+  288 00.000002AC 660C                                 bne.s   audio_effects                   ; jump if pause <> 0
+  289 00.000002AE                      
+  290 00.000002AE 06930000000A         audio_new       add.l   #notelength,(a3)                ; assume new note now (from silence)
+  291 00.000002B4 3003                                 move    d3,d0                           ; d0 becomes channel
+  292 00.000002B6 6100FE18                             bsr     start_channel                   ; start that new one
+  293 00.000002BA                      
+  294 00.000002BA 3803                 audio_effects   move    d3,d4                           ; Find paula's I/O block in the PAD
+  295 00.000002BC E94C                                 lsl     #4,d4                           ; for this audio channel
+  296 00.000002BE 064400A0                             add     #audio,d4
+  297 00.000002C2                      
+  298 00.000002C2 4A6B000A                             tst     envdelay(a3)                    ; Is there an envelope running?
+  299 00.000002C6 6744                                 beq.s   audio_effects2                  ; jump if none
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 17
+
+
+
+  300 00.000002C8                      
+  301 00.000002C8 302B0012                             move    envdelta(a3),d0                 ; two's complement integer+fraction
+  302 00.000002CC D16B0016                             add     d0,curvolume(a3)                ; add fraction to current volume
+  303 00.000002D0                      
+  304 00.000002D0 7000                                 moveq   #0,d0
+  305 00.000002D2 102B0016                             move.b  curvolume(a3),d0                ; integer part of volume ...
+  306 00.000002D6 3D804008                             move    d0,audvol(pad,d4)               ; new volume into Paula
+  307 00.000002DA                      
+  308 00.000002DA 536B000A                             subq    #1,envdelay(a3)                 ; delay envelope
+  309 00.000002DE 662C                                 bne.s   audio_effects2                  ; jump if still running
+  310 00.000002E0                      
+  311 00.000002E0 286B0006                             move.l  envaddr(a3),a4                  ; address of envelope
+  312 00.000002E4 588C                                 addq.l  #envelopelength,a4              ; next one
+  313 00.000002E6 3754000A                             move    (a4),envdelay(a3)               ; delay - take action if "env off"
+  314 00.000002EA 6616                                 bne.s   good_envelope1
+  315 00.000002EC                      
+  316 00.000002EC 302C0002                             move    envoffset(a4),d0                ; is it the last one?
+  317 00.000002F0 671A                                 beq.s   audio_effects2                  ; jump if so leaving envdelay = 0 too
+  318 00.000002F2                      
+  319 00.000002F2 E548                                 lsl     #2,d0                           ; offset 4 bytes per address
+  320 00.000002F4 49F900000108                         lea     envelopetable-4,a4
+  321 00.000002FA 28740000                             move.l  (a4,d0),a4                      ; index to get new address
+  322 00.000002FE 3754000A                             move    (a4),envdelay(a3)               ; delay - should be nonzero
+  323 00.00000302                      
+  324 00.00000302 376C00020012         good_envelope1  move    envoffset(a4),envdelta(a3)      ; fractional and integer offsets
+  325 00.00000308 274C0006                             move.l  a4,envaddr(a3)                  ; new address of envelope
+  326 00.0000030C                      
+  327 00.0000030C 4A6B0010             audio_effects2  tst     pitchbenddelay(a3)              ; Is there a pitchbender running?
+  328 00.00000310 674C                                 beq.s   next_channel
+  329 00.00000312                      
+  330 00.00000312 242B0018                             move.l  curpitch(a3),d2                 ; HLFX
+  331 00.00000316 302B0014                             move    pitchbenddelta(a3),d0           ; offset
+  332 00.0000031A 48C0                                 ext.l   d0
+  333 00.0000031C E09A                                 ror.l   #8,d2                           ; XHLF
+  334 00.0000031E D480                                 add.l   d0,d2                           ; add fraction to number
+  335 00.00000320 E19A                                 rol.l   #8,d2                           ; HLFX
+  336 00.00000322 27420018                             move.l  d2,curpitch(a3)                 ; store in table again
+  337 00.00000326 4842                                 swap    d2                              ; FXHL
+  338 00.00000328                      
+  339 00.00000328 3D824006                             move    d2,audper(pad,d4)               ; Store in Paula's period register   
+           
+  340 00.0000032C                      
+  341 00.0000032C 536B0010                             subq    #1,pitchbenddelay(a3)           ; decrease delay
+  342 00.00000330 662C                                 bne.s   next_channel                    ; still going...
+  343 00.00000332                      
+  344 00.00000332 286B000C                             move.l  pitchbendaddr(a3),a4
+  345 00.00000336 588C                                 addq.l  #envelopelength,a4              ; next envelope entry
+  346 00.00000338 37540010                             move    (a4),pitchbenddelay(a3)         ; new delay
+  347 00.0000033C 6616                                 bne.s   good_envelope2                  ; nonzero, ok, use it
+  348 00.0000033E                      
+  349 00.0000033E 302C0002                             move    envoffset(a4),d0                ; this is the new envelope struct #
+  350 00.00000342 671A                                 beq.s   next_channel                    ; if zero, no more pitch bending
+  351 00.00000344                      
+  352 00.00000344 E548                                 lsl     #2,d0                           ; 4 bytes per address entry
+  353 00.00000346 49F900000108                         lea     envelopetable-4,a4              ; addresses of envelope structs
+  354 00.0000034C 28740000                             move.l  (a4,d0),a4                      ; address of new envelope struct in a
+4
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 18
+
+
+
+  355 00.00000350 37540010                             move    (a4),pitchbenddelay(a3)         ; new delay
+  356 00.00000354                      
+  357 00.00000354 376C00020014         good_envelope2  move    envoffset(a4),pitchbenddelta(a3)
+  358 00.0000035A 274C000C                             move.l  a4,pitchbendaddr(a3)            ; store new address
+  359 00.0000035E                      
+  360 00.0000035E 96FC0020             next_channel    sub     #voiceinfolength,a3             ; next data block
+  361 00.00000362 51CBFF1A                             dbra    d3,audiorefresh
+  362 00.00000366                      
+  363 00.00000366                      
+  364 00.00000366 4CDF3FFF             vblankirqend    movem.l (sp)+,d0-d7/a0-a5
+  365 00.0000036A 4E73                                 rte
+  366 00.0000036C                      
+  367 00.0000036C                      
+  368 00.0000036C 48E78000             level1          movem.l d0,-(sp)
+  369 00.00000370 302E001E                             move    intreqr(pad),d0
+  370 00.00000374 02400003                             and     #$0003,d0
+  371 00.00000378 3D40009C                             move    d0,intreq(pad)
+  372 00.0000037C                      
+  373 00.0000037C 4CDF0001                             movem.l (sp)+,d0
+  374 00.00000380 4E73                                 rte
+  375 00.00000382                      
+  376 00.00000382 48E78000             level2          movem.l d0,-(sp)
+  377 00.00000386 302E001E                             move    intreqr(pad),d0
+  378 00.0000038A 02400004                             and     #$0004,d0
+  379 00.0000038E 3D40009C                             move    d0,intreq(pad)
+  380 00.00000392                      
+  381 00.00000392 4CDF0001                             movem.l (sp)+,d0
+  382 00.00000396 4E73                                 rte
+  383 00.00000398                      
+  384 00.00000398 48E78000             level5          movem.l d0,-(sp)
+  385 00.0000039C 302E001E                             move    intreqr(pad),d0
+  386 00.000003A0 02401800                             and     #$1800,d0
+  387 00.000003A4 3D40009C                             move    d0,intreq(pad)
+  388 00.000003A8                      
+  389 00.000003A8 4CDF0001                             movem.l (sp)+,d0
+  390 00.000003AC 4E73                                 rte
+  391 00.000003AE                      
+  392 00.000003AE 48E78000             level6          movem.l d0,-(sp)
+  393 00.000003B2 302E001E                             move    intreqr(pad),d0
+  394 00.000003B6 02402000                             and     #$2000,d0
+  395 00.000003BA 3D40009C                             move    d0,intreq(pad)
+  396 00.000003BE                      
+  397 00.000003BE 4CDF0001                             movem.l (sp)+,d0
+  398 00.000003C2 4E73                                 rte
+  399 00.000003C4                      
+  400 00.000003C4 4E73                 level7          rte                     ; NMI is not used, but returned though
+  401 00.000003C6                      
+    0 00.000003C6                                      include debug.i
+    1 00.000003C6                      
+    2 01.00000000                                      section _debug,CODE_C
+    3 01.00000000                      
+    4   =00010000                      screen          equ     $10000
+    5 01.00000000                      
+    6 01.00000000 3D7C00000180         debuginit       move    #black,color0(pad)
+    7 01.00000006 3D7C0FFF0182                         move    #white,color1(pad)
+    8 01.0000000C                      
+    9 01.0000000C 3D7C10000100                         move    #$1000,bplcon0(pad)     ; main attributes for playfield
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 19
+DEBUG.I
+
+
+   10 01.00000012 3D7C2C81008E                         move    #$2C81,diwstrt(pad)
+   11 01.00000018 3D7CF4C10090                         move    #$F4C1,diwstop(pad)
+   12 01.0000001E 3D7C00380092                         move    #$0038,ddfstrt(pad)
+   13 01.00000024 3D7C00D00094                         move    #$00D0,ddfstop(pad)
+   14 01.0000002A 3D7C00000108                         move    #0,bpl1mod(pad)
+   15 01.00000030 3D7C0000010A                         move    #0,bpl2mod(pad)
+   16 01.00000036                      
+   17 01.00000036 303C0640                             move    #$640,d0
+   18 01.0000003A 7200                                 moveq   #0,d1
+   19 01.0000003C 43F900010000                         lea     screen,a1
+   20 01.00000042 22C1                 fillscreen1:    move.l  d1,(a1)+
+   21 01.00000044 51C8FFFC                             dbra    d0,fillscreen1
+   22 01.00000048                      
+   23 01.00000048 4E75                                 rts
+   24 01.0000004A                      
+   25 01.0000004A 4EB9000000C4         debugw          jsr     debug
+   26 01.00000050                      
+   27 01.00000050 40E7                 wait4key        move    SR,-(sp)
+   28 01.00000052                      
+   29 01.00000052 082E000A0016         wait4key1       btst    #10,potinp(pad)
+   30 01.00000058 67F8                                 beq.s   wait4key1
+   31 01.0000005A                      
+   32 01.0000005A 082E000A0016         wait4key2       btst    #10,potinp(pad)
+   33 01.00000060 66F8                                 bne.s   wait4key2
+   34 01.00000062                      
+   35 01.00000062 46DF                                 move    (sp)+,SR
+   36 01.00000064 4E75                                 rts
+   37 01.00000066                      
+   38 01.00000066                      
+   39   =000000FD                      p_hexprint      equ     $FD
+   40   =000000FE                      p_newcolour     equ     $FE
+   41   =000000FF                      p_moretext      equ     $FF
+   42 01.00000066                      
+   43 01.00000066 7000                 print           moveq   #0,d0
+   44 01.00000068 1018                                 move.b  (a0)+,d0                ; get X position
+   45 01.0000006A 43F900010000                         lea     screen,a1               ; then init a1 to dfaddr
+   46 01.00000070 D2C0                                 add     d0,a1                   ; and add that X position
+   47 01.00000072                      
+   48 01.00000072 7000                                 moveq   #0,d0
+   49 01.00000074 1018                                 move.b  (a0)+,d0                ; Y position in pixels
+   50 01.00000076 C0FC0140                             mulu    #$140,d0                ; Multiply with screen width
+   51 01.0000007A D3C0                                 add.l   d0,a1                   ; final result in a1
+   52 01.0000007C                      
+   53 01.0000007C 1618                 step2           move.b  (a0)+,d3                ; colour mask (bits 0-3)
+   54 01.0000007E                      
+   55 01.0000007E 7000                 printloop       moveq   #0,d0                   ; reset d0
+   56 01.00000080 1018                                 move.b  (a0)+,d0                ; get an ascii char
+   57 01.00000082 671A                                 beq.s   endprint                ; last, then jump
+   58 01.00000084 B03C00FF                             cmp.b   #p_moretext,d0          ; Repeat step 1
+   59 01.00000088 67DC                                 beq.s   print
+   60 01.0000008A B03C00FE                             cmp.b   #p_newcolour,d0         ; Repeat step 2                 
+   61 01.0000008E 67EC                                 beq.s   step2
+   62 01.00000090 B07C00FD                             cmp     #p_hexprint,d0          ; Go print out d7.l
+   63 01.00000094 6700017E                             beq     print_long
+   64 01.00000098 61000006                             bsr     vdu                     ; else VDU it
+   65 01.0000009C 60E0                                 bra.s   printloop               ; and goback
+   66 01.0000009E                      
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 20
+DEBUG.I
+
+
+   67 01.0000009E 4E75                 endprint        rts
+   68 01.000000A0                      
+   69   =00000008                      char_height     equ     8                       ; BBC Font has 8 pixel lines
+   70 01.000000A0                      
+   71 01.000000A0 024000FF             vdu             and     #$ff,d0
+   72 01.000000A4 E748                                 lsl     #3,d0                   ; Multiply by 8
+   73 01.000000A6 247C00000142                         move.l  #charset-$100,a2        ; Add up to char set
+   74 01.000000AC D4C0                                 add     d0,a2                   ; index into charset data
+   75 01.000000AE 7207                                 moveq   #8-1,d1         ; How many bytes to copy
+   76 01.000000B0                      
+   77 01.000000B0 129A                 vdu2            move.b  (a2)+,(a1)
+   78 01.000000B2 D3FC00000028                         add.l   #40,a1                  ; next
+   79 01.000000B8 51C9FFF6                             dbra    d1,vdu2
+   80 01.000000BC                      
+   81 01.000000BC 93FC0000013F                         sub.l   #$140-1,a1
+   82 01.000000C2 4E75                                 rts                             ; Back to first
+   83 01.000000C4                      
+   84 01.000000C4                      
+   85 01.000000C4                      ;       ----- Print all registers
+   86 01.000000C4                      
+   87 01.000000C4 48E7FFFE             debug           movem.l d0-d7/a0-a6,-(sp)
+   88 01.000000C8 40E7                                 move    SR,-(sp)
+   89 01.000000CA                      
+   90 01.000000CA 40F90000020E                         move    SR,regs_sr
+   91 01.000000D0 23C80000014C                         move.l  a0,regs_a0
+   92 01.000000D6 23C900000158                         move.l  a1,regs_a1
+   93 01.000000DC 23CA00000164                         move.l  a2,regs_a2
+   94 01.000000E2 23CB00000170                         move.l  a3,regs_a3
+   95 01.000000E8 23CC0000017C                         move.l  a4,regs_a4
+   96 01.000000EE 23CD00000188                         move.l  a5,regs_a5
+   97 01.000000F4 23CE00000194                         move.l  a6,regs_a6
+   98 01.000000FA 23CF000001A0                         move.l  a7,regs_a7
+   99 01.00000100 23C0000001AC                         move.l  d0,regs_d0
+  100 01.00000106 23C1000001B8                         move.l  d1,regs_d1
+  101 01.0000010C 23C2000001C4                         move.l  d2,regs_d2
+  102 01.00000112 23C3000001D0                         move.l  d3,regs_d3
+  103 01.00000118 23C4000001DC                         move.l  d4,regs_d4
+  104 01.0000011E 23C5000001E8                         move.l  d5,regs_d5
+  105 01.00000124 23C6000001F4                         move.l  d6,regs_d6
+  106 01.0000012A 23C700000200                         move.l  d7,regs_d7
+  107 01.00000130                      
+  108 01.00000130 207C00000145                         move.l  #regs_text,a0
+  109 01.00000136 4EB900000066                         jsr     print
+  110 01.0000013C                      
+  111 01.0000013C 46DF                                 move    (sp)+,SR
+  112 01.0000013E 4CDF7FFF                             movem.l (sp)+,d0-d7/a0-a6
+  113 01.00000142 4E75                                 rts
+  114 01.00000144                      
+  115 01.00000144                                      section _debug,DATA_C
+  116 01.00000144                      
+  117 01.00000144 00                                   dc.b    0
+  118 01.00000145 00001041303AFD       regs_text       dc.b    0,0,16,"A0:",p_hexprint
+  119 01.0000014C 00000000             regs_a0         dc.l    0
+  120 01.00000150 FF00011041313AFD                     dc.b    p_moretext,0,1,16,"A1:",p_hexprint
+  121 01.00000158 00000000             regs_a1         dc.l    0
+  122 01.0000015C FF00021041323AFD                     dc.b    p_moretext,0,2,16,"A2:",p_hexprint
+  123 01.00000164 00000000             regs_a2         dc.l    0
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 21
+DEBUG.I
+
+
+  124 01.00000168 FF00031041333AFD                     dc.b    p_moretext,0,3,16,"A3:",p_hexprint
+  125 01.00000170 00000000             regs_a3         dc.l    0
+  126 01.00000174 FF00041041343AFD                     dc.b    p_moretext,0,4,16,"A4:",p_hexprint
+  127 01.0000017C 00000000             regs_a4         dc.l    0
+  128 01.00000180 FF00051041353AFD                     dc.b    p_moretext,0,5,16,"A5:",p_hexprint
+  129 01.00000188 00000000             regs_a5         dc.l    0
+  130 01.0000018C FF00061041363AFD                     dc.b    p_moretext,0,6,16,"A6:",p_hexprint
+  131 01.00000194 00000000             regs_a6         dc.l    0
+  132 01.00000198 FF00071041373AFD                     dc.b    p_moretext,0,7,16,"A7:",p_hexprint
+  133 01.000001A0 00000000             regs_a7         dc.l    0
+  134 01.000001A4 FF00091044303AFD                     dc.b    p_moretext,0,9,16,"D0:",p_hexprint
+  135 01.000001AC 00000000             regs_d0         dc.l    0
+  136 01.000001B0 FF000A1044313AFD                     dc.b    p_moretext,0,10,16,"D1:",p_hexprint
+  137 01.000001B8 00000000             regs_d1         dc.l    0
+  138 01.000001BC FF000B1044323AFD                     dc.b    p_moretext,0,11,16,"D2:",p_hexprint
+  139 01.000001C4 00000000             regs_d2         dc.l    0
+  140 01.000001C8 FF000C1044333AFD                     dc.b    p_moretext,0,12,16,"D3:",p_hexprint
+  141 01.000001D0 00000000             regs_d3         dc.l    0
+  142 01.000001D4 FF000D1044343AFD                     dc.b    p_moretext,0,13,16,"D4:",p_hexprint
+  143 01.000001DC 00000000             regs_d4         dc.l    0
+  144 01.000001E0 FF000E1044353AFD                     dc.b    p_moretext,0,14,16,"D5:",p_hexprint
+  145 01.000001E8 00000000             regs_d5         dc.l    0
+  146 01.000001EC FF000F1044363AFD                     dc.b    p_moretext,0,15,16,"D6:",p_hexprint
+  147 01.000001F4 00000000             regs_d6         dc.l    0
+  148 01.000001F8 FF00101044373AFD                     dc.b    p_moretext,0,16,16,"D7:",p_hexprint
+  149 01.00000200 00000000             regs_d7         dc.l    0
+  150 01.00000204 FF0012105352203A20FD                 dc.b    p_moretext,0,18,16,"SR : ",p_hexprint
+  151 01.0000020E 00000000             regs_sr         dc.l    0
+  152 01.00000212 00                                   dc.b    0
+  153 01.00000213                      
+  154 01.00000213                                      section _debug,CODE_C
+  155 01.00000213                      
+  156 01.00000214                                      even
+  157 01.00000214                      
+  158 01.00000214                      ;       ----- Write out next long word as a long word
+  159 01.00000214 7C03                 print_long      moveq   #4-1,d6
+  160 01.00000216 2E18                                 move.l  (a0)+,d7
+  161 01.00000218 E19F                 printd71        rol.l   #8,d7
+  162 01.0000021A 3007                                 move    d7,d0
+  163 01.0000021C 6108                                 bsr.s   hexprint
+  164 01.0000021E 56CEFFF8                             dbne    d6,printd71
+  165 01.00000222 6000FE5A                             bra     printloop
+  166 01.00000226                      
+  167 01.00000226                      ;       ----- Print contents of D0.B
+  168 01.00000226 1F00                 hexprint        move.b  d0,-(sp)
+  169 01.00000228 E808                                 lsr.b   #4,d0
+  170 01.0000022A 6102                                 bsr.s   hex1
+  171 01.0000022C 101F                                 move.b  (sp)+,d0
+  172 01.0000022E 0200000F             hex1            and.b   #$F,d0
+  173 01.00000232 B03C000A                             cmp.b   #$A,d0
+  174 01.00000236 6502                                 bcs.s   hex2
+  175 01.00000238 5E00                                 add.b   #7,d0
+  176 01.0000023A 06000030             hex2            add.b   #48,d0
+  177 01.0000023E 6000FE60                             bra     vdu
+  178 01.00000242                      
+  179 01.00000242                                      section _debug,DATA_C
+  180 01.00000242                      
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 22
+DEBUG.I
+
+
+  181 01.00000242                      ;       ----- Generic ASCII 8x8 mapped character set
+  182 01.00000242 00000000000000001818 charset:        dc.b    0,0,0,0,0,0,0,0,24,24,24,24,24,0,24,0
+  183 01.00000252 6C6C6C00000000006C6C                 dc.b    108,108,108,0,0,0,0,0,108,108,254,108,254,108,108,0
+  184 01.00000262 183E583C1A7C180000C6                 dc.b    24,62,88,60,26,124,24,0,0,198,204,24,48,102,198,0
+  185 01.00000272 386C3876DCCC76001818                 dc.b    56,108,56,118,220,204,118,0,24,24,48,0,0,0,0,0
+  186 01.00000282 0C18303030180C003018                 dc.b    12,24,48,48,48,24,12,0,48,24,12,12,12,24,48,0
+  187 01.00000292 00663CFF3C6600000018                 dc.b    0,102,60,255,60,102,0,0,0,24,24,126,24,24,0,0
+  188 01.000002A2 00000000001818300000                 dc.b    0,0,0,0,0,24,24,48,0,0,0,126,0,0,0,0
+  189 01.000002B2 0000000000181800060C                 dc.b    0,0,0,0,0,24,24,0,6,12,24,48,96,192,128,0
+  190 01.000002C2 7CC6CED6E6C67C001838                 dc.b    124,198,206,214,230,198,124,0,24,56,24,24,24,24,126,0
+  191 01.000002D2 3C66063C60667E003C66                 dc.b    60,102,6,60,96,102,126,0,60,102,6,28,6,102,60,0
+  192 01.000002E2 1C3C6CCCFE0C1E007E62                 dc.b    28,60,108,204,254,12,30,0,126,98,96,124,6,102,60,0
+  193 01.000002F2 3C66607C66663C007E66                 dc.b    60,102,96,124,102,102,60,0,126,102,6,12,24,24,24,0
+  194 01.00000302 3C66663C66663C003C66                 dc.b    60,102,102,60,102,102,60,0,60,102,102,62,6,102,60,0
+  195 01.00000312 00001818001818000000                 dc.b    0,0,24,24,0,24,24,0,0,0,24,24,0,24,24,48
+  196 01.00000322 0C18306030180C000000                 dc.b    12,24,48,96,48,24,12,0,0,0,126,0,0,126,0,0
+  197 01.00000332 6030180C183060003C66                 dc.b    96,48,24,12,24,48,96,0,60,102,102,12,24,0,24,0
+  198 01.00000342 7CC6DEDEDEC07C00183C                 dc.b    124,198,222,222,222,192,124,0,24,60,102,102,126,102,102,0
+  199 01.00000352 FC66667C6666FC003C66                 dc.b    252,102,102,124,102,102,252,0,60,102,192,192,192,102,60,0
+  200 01.00000362 F86C6666666CF800FE62                 dc.b    248,108,102,102,102,108,248,0,254,98,104,120,104,98,254,0
+  201 01.00000372 FE6268786860F0003C66                 dc.b    254,98,104,120,104,96,240,0,60,102,192,192,206,102,62,0
+  202 01.00000382 6666667E666666007E18                 dc.b    102,102,102,126,102,102,102,0,126,24,24,24,24,24,126,0
+  203 01.00000392 1E0C0C0CCCCC7800E666                 dc.b    30,12,12,12,204,204,120,0,230,102,108,120,108,102,230,0
+  204 01.000003A2 F06060606266FE00C6EE                 dc.b    240,96,96,96,98,102,254,0,198,238,254,254,214,198,198,0
+  205 01.000003B2 C6E6F6DECEC6C600386C                 dc.b    198,230,246,222,206,198,198,0,56,108,198,198,198,108,56,0
+  206 01.000003C2 FC66667C6060F000386C                 dc.b    252,102,102,124,96,96,240,0,56,108,198,198,218,204,118,0
+  207 01.000003D2 FC66667C6C66E6003C66                 dc.b    252,102,102,124,108,102,230,0,60,102,96,60,6,102,60,0
+  208 01.000003E2 7E5A181818183C006666                 dc.b    126,90,24,24,24,24,60,0,102,102,102,102,102,102,60,0
+  209 01.000003F2 66666666663C1800C6C6                 dc.b    102,102,102,102,102,60,24,0,198,198,198,214,254,238,198,0
+  210 01.00000402 C66C38386CC6C6006666                 dc.b    198,108,56,56,108,198,198,0,102,102,102,60,24,24,60,0
+  211 01.00000412 FEC68C183266FE003C30                 dc.b    254,198,140,24,50,102,254,0,60,48,48,48,48,48,60,0
+  212 01.00000422 C06030180C0602003C0C                 dc.b    192,96,48,24,12,6,2,0,60,12,12,12,12,12,60,0
+  213 01.00000432 183C7E18181818000000                 dc.b    24,60,126,24,24,24,24,0,0,0,0,0,0,0,0,255
+  214 01.00000442 30180C00000000000000                 dc.b    48,24,12,0,0,0,0,0,0,0,120,12,124,204,118,0
+  215 01.00000452 E0607C666666DC000000                 dc.b    224,96,124,102,102,102,220,0,0,0,60,102,96,102,60,0
+  216 01.00000462 1C0C7CCCCCCC76000000                 dc.b    28,12,124,204,204,204,118,0,0,0,60,102,126,96,60,0
+  217 01.00000472 1C363078303078000000                 dc.b    28,54,48,120,48,48,120,0,0,0,62,102,102,62,6,124
+  218 01.00000482 E0606C766666E6001800                 dc.b    224,96,108,118,102,102,230,0,24,0,56,24,24,24,60,0
+  219 01.00000492 06000E060666663CE060                 dc.b    6,0,14,6,6,102,102,60,224,96,102,108,120,108,230,0
+  220 01.000004A2 3818181818183C000000                 dc.b    56,24,24,24,24,24,60,0,0,0,108,254,214,214,198,0
+  221 01.000004B2 0000DC66666666000000                 dc.b    0,0,220,102,102,102,102,0,0,0,60,102,102,102,60,0
+  222 01.000004C2 0000DC66667C60F00000                 dc.b    0,0,220,102,102,124,96,240,0,0,118,204,204,124,12,30
+  223 01.000004D2 0000DC766060F0000000                 dc.b    0,0,220,118,96,96,240,0,0,0,60,96,60,6,124,0
+  224 01.000004E2 30307C3030361C000000                 dc.b    48,48,124,48,48,54,28,0,0,0,102,102,102,102,62,0
+  225 01.000004F2 00006666663C18000000                 dc.b    0,0,102,102,102,60,24,0,0,0,198,214,214,254,108,0
+  226 01.00000502 0000C66C386CC6000000                 dc.b    0,0,198,108,56,108,198,0,0,0,102,102,102,62,6,124
+  227 01.00000512 00007E0C18307E000E18                 dc.b    0,0,126,12,24,48,126,0,14,24,24,112,24,24,14,0
+  228 01.00000522 18181818181818007018                 dc.b    24,24,24,24,24,24,24,0,112,24,24,14,24,24,112,0
+  229 01.00000532 76DC0000000000003C42                 dc.b    118,220,0,0,0,0,0,0,60,66,153,161,161,153,66,60
+  230 01.00000542                      
+  231 01.00000542                      
+  403 01.00000542                      
+  404 02.00000000                                      section _stuff,DATA_C
+  405 02.00000000                      
+  406 02.00000000 0000036C000003820000 IRQvectortable  dc.l    level1,level2,level3,level4,level5,level6,level7
+  407 02.0000001C                      
+  408 02.0000001C                      copperlist      copmove screen/$10000,bplpt
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 23
+
+
+
+  409 02.00000020                                      copmove screen&$0FFFF,bplpt+2
+  410 02.00000024                                      copwait forever
+  411 02.00000028                      
+  412 02.00000028                      ; STRUCTURE VOXINFO (32 bytes)
+  413   =00000000                      noteaddr        equ     $00     ; address of current note for channel.
+  414   =00000004                      durationcounter equ     $04     ; 20ms intervals left of note, counts.
+  415   =00000006                      envaddr         equ     $06     ; address of envelope structure (if any).
+  416   =0000000A                      envdelay        equ     $0A     ; 20ms intervals left of envelope (if any).
+  417   =0000000C                      pitchbendaddr   equ     $0C     ; address of pitchbender structure (if any).
+  418   =00000010                      pitchbenddelay  equ     $10     ; 20ms intervals left of pitchbender (if any).
+  419   =00000012                      envdelta        equ     $12     ; fractional part of envelope's transition value
+  420   =00000014                      pitchbenddelta  equ     $14     ; fractional part of pitchbender's transition
+  421   =00000016                      curvolume       equ     $16     ; current volume on channel (0-64)
+  422   =00000017                      xcurvolume      equ     $17     ; current volume fraction -128 to 127
+  423   =00000018                      curpitch        equ     $18     ; current period (124 to ca. 8000)
+  424   =00000019                      lcurpitch       equ     $19     ; (LSB of period)
+  425   =0000001A                      xcurpitch       equ     $1A     ; current period fraction -128 to 127
+  426   =0000001B                      pad3            equ     $1B
+  427   =0000001C                      voxstatus       equ     $1C     ; voice status (see below)
+  428   =00000020                      voiceinfolength equ     $20     ; (3 pad bytes)
+  429 02.00000028                      
+  430 02.00000028                      ; STATE VOXSTATUS
+  431   =00000000                      playing_off     equ     0       ; channel silent, DMA off
+  432   =00000001                      playing_AtoC    equ     1       ; channel playing one-shot from A to C
+  433   =00000002                      looping_BtoC    equ     2       ; channel playing loop from B to C
+  434   =00000003                      playing_BtoC    equ     3       ; channel playing one-shot from B to C
+  435   =00000004                      playing_BtoD    equ     4       ; channel playing one-shot from B to D
+  436   =00000005                      playing_zero    equ     5       ; channel silent, DMA on (playing zeros)
+  437 02.00000028                      
+  438 02.000000A8                      voiceinfoblock  ds.b    4*voiceinfolength ; status of all channels
+  439 02.000000A8                      
+  440 02.000000A8 000000AC             tune_table      dc.l    tuneAdata       ; addresses of tunes
+  441 02.000000AC                      ;               dc.l    tuneBdata...
+  442 02.000000AC                      
+  443 02.000000AC                      ; STRUCTURE NOTE (10 bytes)
+  444   =00000000                      soundid         equ     $00     ; waveform no. or zero for last note
+  445   =00000001                      volume          equ     $01     ; initial volume 0-64
+  446   =00000002                      duration        equ     $02     ; duration of note in 20ms intervals
+  447   =00000004                      pause           equ     $04     ; subsequent pause also in 20ms intervals
+  448   =00000006                      period          equ     $06     ; initial sample rate
+  449   =00000008                      envelope        equ     $08     ; envelope no. or zero for same volume
+  450   =00000009                      pitchbender     equ     $09     ; pitchbend no. or zero for same pitch
+  451   =0000000A                      notelength      equ     $0A     ; (10 bytes, no padding)
+  452 02.000000AC                      
+  453 02.000000AC 000000BC000000EE0000 tuneAdata       dc.l    Achannel0,Achannel1,Achannel2,Achannel3
+  454 02.000000BC                      
+  455 02.000000BC                      
+  456 02.000000BC                      ; The note is:  note <ID>, <volume>, <total>, <duration>, <rate>, <env>, <pb>
+  457 02.000000BC                      ; <ID> is the waveform no. (0-255)
+  458 02.000000BC                      ; <volume> is the initial volume (0-64)
+  459 02.000000BC                      ; <total> is the total duration, including pause
+  460 02.000000BC                      ; <duration> is the duration of the sound (0-65535)
+  461 02.000000BC                      ; <rate> is the sample conversion rate, the pitch
+  462 02.000000BC                      ; <env> is the amplitude envelope number (1-255, or zero if none)
+  463 02.000000BC                      ; <pb> is the frequency envelope number (1-255, or zero if none)
+  464 02.000000BC                      
+  465 02.000000BC                      Achannel0
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 24
+
+
+
+  466 02.000000BC                      
+  467 02.000000BC                                      note    3,64,300,250,400,0,0
+  468 02.000000C6                                      note    3,64,300,250,400,0,0
+  469 02.000000D0                                      note    3,64,300,250,400,0,0
+  470 02.000000DA                                      note    3,64,300,250,400,0,0
+  471 02.000000E4                      
+  472 02.000000E4                      
+  473 02.000000E4                      
+  474 02.000000E4                                      note    off
+  475 02.000000EE                      Achannel1
+  476 02.000000EE                      
+  477 02.000000EE                                      note    off
+  478 02.000000F8                      
+  479 02.000000F8                      Achannel2
+  480 02.000000F8                                      note    off
+  481 02.00000102                      
+  482 02.00000102                      Achannel3
+  483 02.00000102                                      note    off
+  484 02.0000010C                      
+  485 02.0000010C                      
+  486 02.0000010C                      ; Envelope data structures
+  487 02.0000010C                      ; ------------------------
+  488 02.0000010C                      ;
+  489 02.0000010C                      ;      Vol              
+  490 02.0000010C                      ;       ^    /-------           In this example, an envelope is run
+  491 02.0000010C                      ;       |   /                   from "1" to "2" altering the amplitude
+  492 02.0000010C                      ;       |  /                    of the sound every 20ms. The change in
+  493 02.0000010C                      ;       | /                     amplitude is determined by a fractional
+  494 02.0000010C                      ;       |/                      and integer part (both byte values) in
+  495 02.0000010C                      ;       A----+------->B         2's complement format. Same applies for
+  496 02.0000010C                      ;       1    2                  LFO-like frequency modulators.
+  497 02.0000010C                      ;
+  498 02.0000010C                      ;
+  499 02.0000010C                      ; An envelope is a data structure determining how a channel output is
+  500 02.0000010C                      ; to be amplitude controlled through time. The data specifies how far
+  501 02.0000010C                      ; ahead (in 20ms intervals) the next reference point is, together with
+  502 02.0000010C                      ; information about the change in volume as a fractional and integer
+  503 02.0000010C                      ; part.
+  504 02.0000010C                      ;
+  505 02.0000010C                      ;       0: (word) Distance to ref point in 50Hz ticks
+  506 02.0000010C                      ;       2: (word) Delta value (transition) represented in n/256 (2s cmpl)
+  507 02.0000010C                      ;
+  508 02.0000010C                      ; At the point where the distance has counted down to zero, the next
+  509 02.0000010C                      ; block of 4 bytes is fetched and interpreted. If the distance is nonzero,
+  510 02.0000010C                      ; it is treated as a new envelope distance and the two byte successors
+  511 02.0000010C                      ; as above. If the distance is zero, the following byte (offset 2) has a
+  512 02.0000010C                      ; special meaning:
+  513 02.0000010C                      ;
+  514 02.0000010C                      ;       0: Stop envelope and sustain this volume indefinetily or until
+  515 02.0000010C                      ;          a new note has been struck.
+  516 02.0000010C                      ;       1: Go to the envelope which is held in the second byte (offset 3)
+  517 02.0000010C                      ;
+  518 02.0000010C                      ; Note that when a new note is struck, the envelope is killed and either
+  519 02.0000010C                      ; replaced with another or it becomes dormant, even if it is in the middle
+  520 02.0000010C                      ; of a transistion!
+  521 02.0000010C                      ;
+  522 02.0000010C                      ; All of the above rules apply to the pitchbending envelopes too, in fact,
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 25
+
+
+
+  523 02.0000010C                      ; the physical envelope structure is the same (uses same data)
+  524 02.0000010C                      
+  525 02.0000010C                      
+  526 02.0000010C                      ; STRUCTURE ENVELOPE
+  527   =00000000                      envdistance     equ     $00
+  528   =00000002                      envoffset       equ     $02
+  529   =00000004                      envelopelength  equ     $04
+  530 02.0000010C                      
+  531 02.0000010C 0000011C             envelopetable   dc.l    envelope1
+  532 02.00000110 00000124                             dc.l    envelope2
+  533 02.00000114 0000012C                             dc.l    envelope3
+  534 02.00000118 00000134                             dc.l    envelope4
+  535 02.0000011C                      
+  536 02.0000011C                      envelope1       envelop 90,284
+  537 02.00000120                                      envelop goto,1
+  538 02.00000124                      
+  539 02.00000124                      envelope2       envelop 90,-284
+  540 02.00000128                                      envelop goto,2
+  541 02.0000012C                      
+  542 02.0000012C                      envelope3       envelop 15,409
+  543 02.00000130                                      envelop off
+  544 02.00000134                      
+  545 02.00000134                      envelope4       envelop 1,0
+  546 02.00000138                                      envelop off
+  547 02.0000013C                      
+  548 02.0000013C                      
+  549 02.0000013C                      ;   Voice and Waveform data structures:
+  550 02.0000013C                      ;
+  551 02.0000013C                      ;   |-------|-------|-------|  <- waveform & ctrl points ...
+  552 02.0000013C                      ;   A       B       C       D  <- A=Start, B=Loop, C=Endloop, D=End
+  553 02.0000013C                      ;
+  554 02.0000013C                      ;  A = start of waveform
+  555 02.0000013C                      ;  B = loop point
+  556 02.0000013C                      ;  C = endloop point
+  557 02.0000013C                      ;  D = end of waveform
+  558 02.0000013C                      ;
+  559 02.0000013C                      ;  L = D-A, length of waveform
+  560 02.0000013C                      ;  X = C-A, distance from start to endloop
+  561 02.0000013C                      ;  Y = C-B, span of loop (if B=C, it's a one-shot waveform with no loop)
+  562 02.0000013C                      ;  Z = D-B, distance from loop point to end of waveform
+  563 02.0000013C                      ;
+  564 02.0000013C                      ;
+  565 02.0000013C                      ;  Information provided by user :-
+  566 02.0000013C                      ;
+  567 02.0000013C                      ;       DC.L    A       ; address of beginning of waveform
+  568 02.0000013C                      ;       DC.W    B       ; distance from A to B
+  569 02.0000013C                      ;       DC.W    C       ; distance from A to C
+  570 02.0000013C                      ;       DC.W    D       ; distance from A to D (length of waveform)
+  571 02.0000013C                      ;
+  572 02.0000013C                      ;  Data needed by the sequencer, processed by init code or macro:-
+  573 02.0000013C                      ;
+  574 02.0000013C                      ;       DC.L    A       ; address of first sample      (A)      
+  575 02.0000013C                      ;       DC.W    L       ; length of whole sample (words - for 1shotmode) (D)
+  576 02.0000013C                      ;       DC.W    X       ; distance from A to C (words) (C)      
+  577 02.0000013C                      ;       DC.L    B       ; address of first loop sample (A + B)  
+  578 02.0000013C                      ;       DC.W    Y       ; distance from B to C (words) (C - B)
+  579 02.0000013C                      ;       DC.W    Z       ; distance from B to D (words) (D - B)
+HiSoft GenAm 680x0 Macro Assembler v2.12      Page 26
+
+
+
+  580 02.0000013C                      ;
+  581 02.0000013C                      
+  582 02.0000013C                      ; STRUCTURE VOXTABLE (16 bytes)
+  583   =00000000                      voxA            equ     $00
+  584   =00000004                      voxL            equ     $04
+  585   =00000006                      voxX            equ     $06
+  586   =00000008                      voxB            equ     $08
+  587   =0000000C                      voxY            equ     $0C
+  588   =0000000E                      voxZ            equ     $0E
+  589   =00000010                      voxtablelength  equ     $10
+  590 02.0000013C                      
+  591 02.0000013C                      ; Here are the Sound IDs
+  592 02.0000013C                      
+  593 02.0000013C                      voicetable      wavefrm sinuswaveform,0,64,64
+  594 02.0000014C                                      wavefrm squarewaveform,0,32,32
+  595 02.0000015C                                      wavefrm swanee,17720,0,17720
+  596 02.0000016C                      
+  597 02.0000016C                      ; 96 words/192 bytes of zeros for silence
+  598 02.0000016C 00000000000000000000 silence         dc.l    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+  599 02.000001CC 00000000000000000000                 dc.l    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+  600 02.0000022C                      
+  601 02.0000022C                      ; ** example waveforms: a 64-byte sinewave and a 32-byte square **
+  602 02.0000022C                      
+  603 02.0000022C 0C0E25303C47515A626A sinuswaveform   dc.b    12,14,37,48,60,71,81,90,98,106,112,118,122,125
+  604 02.0000023A 7F7F7F7D7A76706A625A                 dc.b    127,127,127,125,122,118,112,106,98,90,81,71,60,48
+  605 02.00000248 25180CFFF3E7DACFC3B8                 dc.b    37,24,12,-1,-13,-25,-38,-49,-61,-72,-82,-91,-99,-107
+  606 02.00000256 8F898582808080828589                 dc.b    -113,-119,-123,-126,-128,-128,-128,-126,-123,-119
+  607 02.00000260 8F959DA5AEB8C3CFDAE7                 dc.b    -113,-107,-99,-91,-82,-72,-61,-49,-38,-25,-13,-1
+  608 02.0000026C                      
+  609 02.0000026C 8080808080808080     squarewaveform  dc.b    -128,-128,-128,-128,-128,-128,-128,-128
+  610 02.00000274 8080808080808080                     dc.b    -128,-128,-128,-128,-128,-128,-128,-128
+  611 02.0000027C 7F7F7F7F7F7F7F7F                     dc.b     127,127,127,127,127,127,127,127
+  612 02.00000284 7F7F7F7F7F7F7F7F                     dc.b     127,127,127,127,127,127,127,127
+  613 02.0000028C                      
+  614 02.000047C4                      swanee          incbin  swanee.raw
+  615 02.000047C4                      
+  616 02.000047C4                      
+  617 02.000047C4                       
+
+

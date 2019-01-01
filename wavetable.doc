@@ -1,0 +1,32 @@
+
+;   Voice and Waveform data structures:
+;
+;   |-------|-------|-------|  <- waveform & ctrl points ...
+;   A       B       C       D  <- A=Start, B=Loop, C=Endloop, D=End
+;
+;  A = start of waveform
+;  B = loop point
+;  C = endloop point
+;  D = end of waveform
+;
+;  L = D-A, length of waveform
+;  X = C-A, distance from start to endloop
+;  Y = C-B, span of loop (if B=C, it's a one-shot waveform with no loop)
+;  Z = D-B, distance from loop point to end of waveform
+;
+;
+;  Information provided by user :-
+;
+;	DC.L	A	; address of beginning of waveform
+;	DC.W	B	; distance from A to B
+;	DC.W	C	; distance from A to C
+;	DC.W	D	; distance from A to D (length of waveform)
+;
+;  Data needed by the sequencer, processed by init code or macro:-
+;
+;	DC.L	A	; address of first sample      (A)	
+;	DC.W	L	; length of whole sample (words - for 1shotmode) (D)
+;	DC.W	X	; distance from A to C (words) (C)	
+;	DC.L	B	; address of first loop sample (A + B)	
+;	DC.W	Y	; distance from B to C (words) (C - B)
+;	DC.W	Z	; distance from B to D (words) (D - B)

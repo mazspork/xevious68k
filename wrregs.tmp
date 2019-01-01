@@ -1,0 +1,84 @@
+
+;	----- Print all registers
+print_registers	
+		move	#clrall,intena(pad)
+
+		move.l	a0,regs_a0
+		move.l	a1,regs_a1
+		move.l	a2,regs_a2
+		move.l	a3,regs_a3
+		move.l	a4,regs_a4
+		move.l	a5,regs_a5
+		move.l	a6,regs_a6
+		move.l	a7,regs_a7
+		move.l	d0,regs_d0
+		move.l	d1,regs_d1
+		move.l	d2,regs_d2
+		move.l	d3,regs_d3
+		move.l	d4,regs_d4
+		move.l	d5,regs_d5
+		move.l	d6,regs_d6
+		move.l	d7,regs_d7
+
+		move.l	#regs_text,a0
+		jsr	print
+
+hang		bra	hang
+
+		dc.b	0
+regs_text	dc.b	0,0,16,"A0:",p_hexprint
+regs_a0		dc.l	0
+		dc.b	p_moretext,0,1,16,"A1:",p_hexprint
+regs_a1		dc.l	0
+		dc.b	p_moretext,0,2,16,"A2:",p_hexprint
+regs_a2		dc.l	0
+		dc.b	p_moretext,0,3,16,"A3:",p_hexprint
+regs_a3		dc.l	0
+		dc.b	p_moretext,0,4,16,"A4:",p_hexprint
+regs_a4		dc.l	0
+		dc.b	p_moretext,0,5,16,"A5:",p_hexprint
+regs_a5		dc.l	0
+		dc.b	p_moretext,0,6,16,"A6:",p_hexprint
+regs_a6		dc.l	0
+		dc.b	p_moretext,0,7,16,"A7:",p_hexprint
+regs_a7		dc.l	0
+		dc.b	p_moretext,0,9,16,"D0:",p_hexprint
+regs_d0		dc.l	0
+		dc.b	p_moretext,0,10,16,"D1:",p_hexprint
+regs_d1		dc.l	0
+		dc.b	p_moretext,0,11,16,"D2:",p_hexprint
+regs_d2		dc.l	0
+		dc.b	p_moretext,0,12,16,"D3:",p_hexprint
+regs_d3		dc.l	0
+		dc.b	p_moretext,0,13,16,"D4:",p_hexprint
+regs_d4		dc.l	0
+		dc.b	p_moretext,0,14,16,"D5:",p_hexprint
+regs_d5		dc.l	0
+		dc.b	p_moretext,0,15,16,"D6:",p_hexprint
+regs_d6		dc.l	0
+		dc.b	p_moretext,0,16,16,"D7:",p_hexprint
+regs_d7		dc.l	0
+		dc.b	0
+
+		cnop	0,2
+
+;	----- Write out next long word as a long word
+print_long	moveq	#4-1,d6
+		move.l	(a0)+,d7
+printd71	rol.l	#8,d7
+		move	d7,d0
+		bsr.s	hexprint
+		dbne	d6,printd71
+		bra	printloop
+
+;	----- Print contents of D0.B
+hexprint	move.b	d0,-(sp)
+		lsr.b	#4,d0
+		bsr.s	hex1
+		move.b	(sp)+,d0
+hex1		and.b	#$F,d0
+		cmp.b	#$A,d0
+		bcs.s	hex2
+		add.b	#7,d0
+hex2		add.b	#48,d0
+		bra	vdu
